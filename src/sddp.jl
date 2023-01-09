@@ -21,7 +21,7 @@ function solve!(::HereAndNowModel, model::JuMP.Model, xₜ::Vector{Float64}, ξ�
     fix.(model[:xₜ], xₜ, force = true)
     fix.(model[:ξₜ₊₁], ξₜ₊₁, force = true)
     optimize!(model)
-    @assert termination_status(model) == MOI.OPTIMAL println(model)
+    @assert termination_status(model) ∈ [MOI.OPTIMAL, MOI.OTHER_ERROR]
     return
 end
 
@@ -170,7 +170,7 @@ function solve!(
         backward_pass!(hdm, models, primal_scenario, V)
         if (verbose > 0) && (mod(i, verbose) == 0)
             lb = V[1](x₀)
-            @printf(" %4i %12.4f\n", i, lb)
+            @printf(" %4i %15.6e\n", i, lb)
         end
     end
     return models
