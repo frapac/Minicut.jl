@@ -41,3 +41,14 @@ end
 function sample(vs::Vector{DiscreteRandomVariable{T}}, n_scenarios) where T
     return [sample(vs) for _ in 1:n_scenarios]
 end
+
+function number_nodes(vs::Vector{DiscreteRandomVariable{T}}) where T
+    n = length(vs)
+    counts = zeros(Int, n+1)
+    counts[1] = 1
+    for t in 1:n
+        counts[t+1] = counts[t] * length(vs[t])
+    end
+    return counts
+end
+

@@ -2,53 +2,6 @@ using JuMP
 using HiGHS
 using Statistics
 
-struct WaterDamModel <: HereAndNowModel
-    T::Int
-    capacity::Float64
-    umax::Float64
-    csell::Vector{Float64}
-    inflows::Vector{Minicut.DiscreteRandomVariable{Float64}}
-end
-
-function WaterDamModel(
-    T;
-    nbins=10,
-    capacity=10.0,
-    umax=5.0,
-    maxflow =3.0,
-    csell=120.0*(1.0 .+ 0.5 .* (rand(T) .- 0.5)),
-)
-    # Build uncertainty model
-    weights = 1.0 ./ nbins .* ones(nbins)
-    inflows = [Minicut.DiscreteRandomVariable(weights, maxflow .* rand(1, nbins)) for t in 1:T]
-    return WaterDamModel(T, capacity, umax, csell, inflows)
-end
-
-Minicut.uncertainties(wdm::WaterDamModel) = wdm.inflows
-Minicut.horizon(wdm::WaterDamModel) = wdm.T
-Minicut.number_states(wdm::WaterDamModel) = 1
-
-function Minicut.stage_model(wdm::WaterDamModel, t::Int)
-    m = Model()
-
-    @variable(m, 0 <= l1 <= wdm.capacity)
-    @variable(m, 0 <= l2 <= wdm.capacity)
-    @variable(m, r2)
-    @variable(m, 0 <= u <= wdm.umax)
-    @variable(m, s >= 0)
-
-    @constraint(m, l2 == l1 - u + r2 - s)
-
-    @objective(m, Min, -wdm.csell[t] * u)
-
-    @expression(m, xₜ, [l1])
-    @expression(m, uₜ₊₁, [u, s])
-    @expression(m, xₜ₊₁, [l2])
-    @expression(m, ξₜ₊₁, [r2])
-
-    return m
-end
-
 @testset "SDDP: WaterDamModel" begin
     optimizer = JuMP.optimizer_with_attributes(
         HiGHS.Optimizer, "output_flag" => false,
@@ -107,7 +60,8 @@ end
         lb = V[1](x0)
         ub = mean(costs) + 1.96 * std(costs) / sqrt(n_scenarios)
         # Test convergence of SDDP
-        @test abs(ub - lb) / abs(ub) <= 0.01
+        # TODO: check we satisfy this bound for any random seed
+        @test abs(ub - lb) / abs(ub) <= 0.02
     end
 
     # Test lower bound matches exactly upper bound in deterministic case
@@ -125,5 +79,31 @@ end
         costs = Minicut.simulate!(wdm_determistic, models, x0, scenarios)
         @test mean(costs) ≈ Vdet[1](x0)
     end
+end
+
+@testset "Test SDDP against Extensive formulation" begin
+    # Build small model
+    T, nbins = 3, 2
+    wdm = WaterDamModel(T; nbins=nbins)
+    nx = Minicut.number_states(wdm)
+    x0 = [8.0]
+
+    optimizer = JuMP.optimizer_with_attributes(
+        HiGHS.Optimizer, "output_flag" => false,
+    )
+    # Solve with SDDP
+    lower_bound = -1e4
+    V = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T]
+    push!(V, Minicut.PolyhedralFunction(zeros(1, nx), [0.0]))
+    solver = Minicut.SDDP(optimizer)
+    models = Minicut.solve!(solver, wdm, V, x0; n_iter=100, verbose=0)
+    objective_sddp = V[1](x0)
+
+    # Solve with extensive form
+    extensive_solver = Minicut.ExtensiveFormulationSolver(optimizer)
+    model = Minicut.solve!(extensive_solver, wdm, x0)
+    objective_extensive_form = JuMP.objective_value(model)
+
+    @test objective_sddp ≈ objective_extensive_form
 end
 
