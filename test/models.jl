@@ -1,5 +1,5 @@
 
-struct WaterDamModel <: HereAndNowModel
+struct WaterDamModel <: HazardDecisionModel
     T::Int
     capacity::Float64
     umax::Float64

@@ -4,7 +4,7 @@ using Printf
 using LinearAlgebra, Statistics
 using JuMP
 
-export HereAndNowModel
+export HazardDecisionModel
 export PolyhedralFunction
 
 include("attributes.jl")

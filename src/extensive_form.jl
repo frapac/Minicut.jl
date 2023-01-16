@@ -151,7 +151,7 @@ function add_children!(
 end
 
 function build_scenario_tree(
-    hm::HereAndNowModel;
+    hm::HazardDecisionModel;
     max_nodes=1000,
 )
     Ξ = Minicut.uncertainties(hm)
@@ -193,7 +193,7 @@ end
 
 function solve!(
     ext::ExtensiveFormulationSolver,
-    hm::HereAndNowModel,
+    hm::HazardDecisionModel,
     x0::Array,
 )
     extensive = build_scenario_tree(hm)

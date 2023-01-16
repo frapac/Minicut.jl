@@ -10,7 +10,7 @@ using JuMP
 using HiGHS
 using Minicut
 
-struct DamsValleyModel <: HereAndNowModel
+struct DamsValleyModel <: HazardDecisionModel
     T::Int
     capacity::Float64
     umax::Float64
@@ -43,11 +43,13 @@ function Minicut.stage_model(dvm::DamsValleyModel, t::Int)
 
     # Dynamics
     # dam1 -> dam2 -> dam3 -> dam4 -> dam5
-    @constraint(m, xf[1] == x[1] - u[1] - s[1] + inflow[1])
-    @constraint(m, xf[2] == x[2] + u[1] + s[1] - u[2] - s[2] + inflow[2])
-    @constraint(m, xf[3] == x[3] + u[2] + s[2] - u[3] - s[3] + inflow[3])
-    @constraint(m, xf[4] == x[4] + u[3] + s[3] - u[4] - s[4] + inflow[4])
-    @constraint(m, xf[5] == x[5] + u[4] + s[4] - u[5] - s[5] + inflow[5])
+    @constraints(m, begin
+        xf[1] == x[1] - u[1] - s[1] + inflow[1]
+        xf[2] == x[2] + u[1] + s[1] - u[2] - s[2] + inflow[2]
+        xf[3] == x[3] + u[2] + s[2] - u[3] - s[3] + inflow[3]
+        xf[4] == x[4] + u[3] + s[3] - u[4] - s[4] + inflow[4]
+        xf[5] == x[5] + u[4] + s[4] - u[5] - s[5] + inflow[5]
+    end)
 
     if t < Minicut.horizon(dvm)
         @objective(m, Min, -dvm.csell[t] * sum(u))
@@ -93,6 +95,6 @@ function damsvalley(; max_iter=500, nbins=10, nsimus=1000)
 
     println("Final gap: ", abs(ub - lb) / abs(ub))
 
-    return
+    return models
 end
 

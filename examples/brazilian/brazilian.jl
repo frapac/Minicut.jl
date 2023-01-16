@@ -37,7 +37,7 @@ end
 
 data = BrazilianHydroData()
 
-struct BrazilianHydroModel <: HereAndNowModel
+struct BrazilianHydroModel <: HazardDecisionModel
     T::Int
     data::BrazilianHydroData
     xmax::Vector{Float64}

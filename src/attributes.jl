@@ -1,7 +1,7 @@
 
 abstract type AbstractBellmanModel end
 
-abstract type HereAndNowModel <: AbstractBellmanModel end
+abstract type HazardDecisionModel <: AbstractBellmanModel end
 
 function stage_model end
 

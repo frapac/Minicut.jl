@@ -88,7 +88,7 @@ function import_scenarios(names, nstages, nscen)
     return uncertainties
 end
 
-struct ContinentalModel <: HereAndNowModel
+struct ContinentalModel <: HazardDecisionModel
     T::Int
     nzones::Int
     nedges::Int
