@@ -47,27 +47,3 @@ function remove_cut(V::PolyhedralFunction, cut_index::Int)
     return PolyhedralFunction(V.λ[to_keep, :], V.γ[to_keep])
 end
 
-# TODO
-function fenchel_transform_as_sup(m::JuMP.Model, D::PolyhedralFunction, x::Array{Float64,1}, lip::Real)
-    nx = size(D.λ, 2)
-    @variable(m, -lip <= λ[1:nx] <= lip)
-    @variable(m, θ)
-    for (xk, βk) in eachcut(D)
-        @constraint(m, θ >= xk' * λ + βk)
-    end
-    @objective(m, Max, x' * λ - θ)
-end
-
-# TODO
-function fenchel_transform_as_inf(m::JuMP.Model, D::PolyhedralFunction, x::Array{Float64,1}, lip::Real)
-    nc, nx = size(D.λ)
-    @variable(m, σ[1:nc] >= 0)
-    @constraint(m, sum(σ) == 1)
-    @variable(m, y[1:nx])
-    @variable(m, lift[1:nx] >= 0)
-    @constraint(m, lift .>= x .- y)
-    @constraint(m, lift .>= y .- x)
-    @constraint(m, sum(σk .* D.λ[k, :] for (k, σk) in enumerate(σ)) .== y)
-    @objective(m, Min, lip * sum(lift) - sum(σ .* D.γ))
-end
-
