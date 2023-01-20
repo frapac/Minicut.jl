@@ -11,8 +11,8 @@ export PolyhedralFunction
 include("attributes.jl")
 include("utils.jl")
 include("polyhedral.jl")
-include("sddp.jl")
 include("extensive_form.jl")
 include("dualize.jl")
+include("SDDP/generic_sddp.jl")
 
 end # module

@@ -7,9 +7,8 @@ ncuts(V::PolyhedralFunction) = size(V.λ, 1)
 dimension(V::PolyhedralFunction) = size(V.λ, 2)
 eachcut(V::PolyhedralFunction) = zip(eachrow(V.λ), V.γ)
 
-function PolyhedralFunction()
-    return PolyhedralFunction(Array{Float64,2}(undef, 0, 0), Vector{Float64}())
-end
+PolyhedralFunction(nx::Int) = PolyhedralFunction(zeros(0, nx), Float64[])
+PolyhedralFunction(nx::Int, lb::Float64) = PolyhedralFunction(zeros(1, nx), [lb])
 
 function lipschitz_constant(V::PolyhedralFunction, pnorm::Real = 1)
     return maximum([norm(λ, pnorm) for λ in eachrow(V.λ)])

@@ -91,7 +91,8 @@ function _get_extensive_stage_problem(
         # Adapt generic constraints and add a reference
         # to the coupling constraints between xₜ and xₜ₊₁.
         # All terms are scaled by current probability weights w.
-        id_coupling = 1
+        id_coupling = 0
+        id_operational = 0
         for (F, S) in MOI.get(src, MOI.ListOfConstraintTypesPresent())
             # Skip variable's bounds
             (F <: MOI.VariableIndex) && continue
@@ -118,15 +119,19 @@ function _get_extensive_stage_problem(
                 new_func = MOI.ScalarAffineFunction{Float64}(terms, constant)
                 con = MOIU.normalize_and_add_constraint(dest, new_func, set)
                 # Name coupling constraint for future reference
-                if is_coupling
-                    MOI.set(
-                        dest,
-                        MOI.ConstraintName(),
-                        con,
-                        "coupling_$(k)_$(id_coupling)",
-                    )
+                name = if is_coupling
                     id_coupling += 1
+                    "coupling_$(k)_$(id_coupling)"
+                else
+                    id_operational +=1
+                    "op_$(k)_$(id_coupling)"
                 end
+                MOI.set(
+                    dest,
+                    MOI.ConstraintName(),
+                    con,
+                    name,
+                )
             end
         end
         # Adapt objective
@@ -145,7 +150,7 @@ end
 
 # Build dual model using Dualization and add variables
 # associated to the costate μₜ in the model.
-function _build_dual_model(primal_model, index_x, nw)
+function _build_dual_model(primal_model, index_x, nw, lip_lb, lip_ub)
     nx = length(index_x)
     dual = Dualization.dualize(primal_model; dual_names=DualNames("", ""))
     # Add adjoint variable
@@ -167,6 +172,8 @@ function _build_dual_model(primal_model, index_x, nw)
     index_mu_next = MOI.VariableIndex[]
     for k in 1:nw, i in 1:nx
         idx = MOI.get(dual.dual_model, MOI.VariableIndex, "coupling_$(k)_$(i)_1")
+        MOI.add_constraint(dual.dual_model, idx, MOI.LessThan{Float64}(lip_ub))
+        MOI.add_constraint(dual.dual_model, idx, MOI.GreaterThan{Float64}(lip_lb))
         push!(index_mu_next, idx)
     end
 
@@ -174,7 +181,7 @@ function _build_dual_model(primal_model, index_x, nw)
 end
 
 function dual_stage_model(
-    hd::HazardDecisionModel, t::Int,
+    hd::HazardDecisionModel, t::Int, lip_lb::Float64, lip_ub::Float64,
 )
     Ξ = uncertainties(hd)
     nw = length(Ξ[t])
@@ -183,7 +190,7 @@ function dual_stage_model(
     # Build extensive one-stage model
     dest, index_x = _get_extensive_stage_problem(model, Ξ[t])
     # Build dual MOI model
-    dual, index_mu, index_mu_next = _build_dual_model(dest, index_x, nw)
+    dual, index_mu, index_mu_next = _build_dual_model(dest, index_x, nw, lip_lb, lip_ub)
 
     # Copy dual MOI model into a JuMP model
     dual_model = JuMP.Model()

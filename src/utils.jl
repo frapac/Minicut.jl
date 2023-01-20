@@ -24,6 +24,17 @@ function Base.rand(v::DiscreteRandomVariable)
     return v.supports[:, n]
 end
 
+function find_outcome(v::DiscreteRandomVariable, x::Vector)
+    idx = -1
+    for k in 1:length(v)
+        vk = view(v.supports, :, k)
+        if isequal(vk, x)
+            idx = k ; break
+        end
+    end
+    return idx
+end
+
 function sample!(vs::Vector{DiscreteRandomVariable{T}}, scenario::Matrix{T}) where T
     for (t, v) in enumerate(vs)
         scenario[:, t] .= rand(v)

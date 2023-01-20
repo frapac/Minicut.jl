@@ -6,7 +6,7 @@ using Minicut
 @testset "PolyhedralFunction" begin
     n = 2
 
-    V = Minicut.PolyhedralFunction()
+    V = Minicut.PolyhedralFunction(n)
 
     cut = [1.0, -0.5]
     slope = 1.0
@@ -38,6 +38,9 @@ end
     @test Minicut.dimension(d) == n
     @test Minicut.length(d) == m
     @test isa(rand(d), Vector)
+    k = 2
+    v = d.supports[:, k]
+    @test Minicut.find_outcome(d, v) == k
 
     # Scenario
     T = 10
@@ -45,5 +48,7 @@ end
     scenario = Minicut.sample(ds)
     @test isa(scenario, Matrix)
     @test size(scenario) == (n, T)
+
+
 end
 
