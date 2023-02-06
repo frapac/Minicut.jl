@@ -3,7 +3,7 @@
     optimizer = JuMP.optimizer_with_attributes(
         HiGHS.Optimizer, "output_flag" => false,
     )
-    niter = 30
+    niter = 100
 
     nx = 1
     # Horizon
@@ -11,7 +11,7 @@
     # Initial position
     x0 = [8.0]
     # Build model
-    wdm = WaterDamModel(T)
+    wdm = WaterDamModel(T; nbins=3)
     Ξ = Minicut.uncertainties(wdm)
 
     # Initial cuts.
@@ -37,9 +37,11 @@
     =#
     dual_sddp = Minicut.DualSDDP(optimizer; lip_lb=-1e6, lip_ub=1e6)
     D = [Minicut.PolyhedralFunction(nx) for t in 1:T]
-
     dual_models = Minicut.solve!(dual_sddp, wdm, D, x0; n_iter=0, verbose=0)
+
     # Build initial cuts with primal solution
+    primtraj = Minicut.forward_pass(primal_sddp, wdm, primal_models, Minicut.sample(Ξ), x0)
+    dualtraj = Minicut.backward_pass!(primal_sddp, wdm, primal_models, primtraj, V)
     Minicut.backward_pass!(dual_sddp, wdm, dual_models, dualtraj, D)
 
     dual_models = Minicut.solve!(dual_sddp, wdm, D, x0; n_iter=niter, verbose=0)
@@ -47,5 +49,7 @@
 
     @test isa(p0, Vector)
     # Test all results are matching
-    @test ub ≈ lb ≈ ref
+    @test lb <= ub
+    @test isapprox(lb, ub, atol=1e-6)
+    @test isapprox(lb, ref, atol=1e-6)
 end
