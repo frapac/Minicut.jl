@@ -32,7 +32,7 @@ function Minicut.stage_model(wdm::WaterDamModel, t::Int)
     @variable(m, 0 <= l2 <= wdm.capacity)
     @variable(m, r2)
     @variable(m, 0 <= u <= wdm.umax)
-    @variable(m, s >= 0)
+    @variable(m, 0 <= s <= 10000.0)
 
     @constraint(m, l2 == l1 - u + r2 - s)
 

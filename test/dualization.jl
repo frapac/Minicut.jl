@@ -40,6 +40,7 @@
     end
 
     @testset "Dualization: extensive dual model" begin
+        nw = length(Ξ[t])
         moi_model, index_x = Minicut._get_extensive_stage_problem(model, Ξ[t])
         primal_model = JuMP.Model()
         idx_map = MOI.copy_to(primal_model, moi_model)
@@ -49,11 +50,13 @@
 
         nvar = JuMP.num_variables(primal_model)
         ncon = JuMP.num_constraints(primal_model; count_variable_in_set_constraints=true)
-        dual_model = Minicut.dual_stage_model(wdm, t)
+        dual_model = Minicut.dual_stage_model(wdm, t, -Inf, Inf)
         nvar_dual = JuMP.num_variables(dual_model)
         ncon_dual = JuMP.num_constraints(dual_model; count_variable_in_set_constraints=true)
 
-        @test nvar_dual == ncon + nx
+        # NB: we have added additional variables to account for
+        # the co-states μₜ and μₜ₊₁
+        @test nvar_dual == ncon + (nx + nw * nx)
         # Co-state [t]
         μ = dual_model[:μₜ]
         @test isa(μ, Vector{JuMP.VariableRef})
@@ -61,7 +64,7 @@
         # Co-state [t+1]
         μf = dual_model[:μₜ₊₁]
         @test isa(μf, Vector{JuMP.VariableRef})
-        @test length(μf) == nx * length(Ξ[t])
+        @test length(μf) == nx * nw
         # Fix co-state
         JuMP.fix.(μ, [0.0])
         # Solve dual and check we get same objective as in primal

@@ -40,6 +40,7 @@ end
 function solve!(sddp::DualSDDP, model::JuMP.Model, μₜ::Vector{Float64})
     fix.(model[:μₜ], μₜ)
     optimize!(model)
+    v = JuMP.all_variables(model)
     @assert termination_status(model) ∈ sddp.valid_statuses println(model)
     return
 end

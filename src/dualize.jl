@@ -36,6 +36,7 @@ function _get_extensive_stage_problem(
     # Indexing
     all_index = MOI.get(src, MOI.ListOfVariableIndices())
     index_x = index.(model[:xₜ])
+    index_xf = index.(model[:xₜ₊₁])
     index_ξ = index.(model[:ξₜ₊₁])
     index_edges = [iu for iu in all_index if iu ∉ [index_x; index_ξ]]
     nx, nu = length(index_x), length(index_edges)
@@ -50,6 +51,7 @@ function _get_extensive_stage_problem(
     # TODO: use MOI.IndexMap here
     index_map_root = Dict()
     new_index_x = MOI.VariableIndex[]
+    new_index_xf = MOI.VariableIndex[]
 
     # Build state variable xₜ
     for xi in index_x
@@ -68,6 +70,9 @@ function _get_extensive_stage_problem(
             index_map[iu] = MOI.add_variable(dest)
             name = MOI.get(src, MOI.VariableName(), iu)
             MOI.set(dest, MOI.VariableName(), index_map[iu], "$(name)_$k")
+            if iu in index_xf
+                push!(new_index_xf, index_map[iu])
+            end
         end
         # Correspondance map for uncertainties
         for (l, iξ) in enumerate(index_ξ)
@@ -145,15 +150,16 @@ function _get_extensive_stage_problem(
     MOI.set(dest, MOI.ObjectiveFunction{ObjFunc}(), new_obj)
     MOI.set(dest, MOI.ObjectiveSense(), MOI.MIN_SENSE)
 
-    return dest, new_index_x
+    return dest, new_index_x, new_index_xf
 end
 
 # Build dual model using Dualization and add variables
 # associated to the costate μₜ in the model.
-function _build_dual_model(primal_model, index_x, nw, lip_lb, lip_ub)
+function _build_dual_model(primal_model, index_x, index_xf, ξ, lip_lb, lip_ub)
     nx = length(index_x)
+    nw = length(ξ)
     dual = Dualization.dualize(primal_model; dual_names=DualNames("", ""))
-    # Add adjoint variable
+    # Add adjoint variable μₜ
     index_mu = MOI.VariableIndex[]
     for (i, xi) in enumerate(index_x)
         con = dual.primal_dual_map.primal_var_dual_con[xi]
@@ -168,13 +174,28 @@ function _build_dual_model(primal_model, index_x, nw, lip_lb, lip_ub)
         push!(index_mu, vi)
     end
 
-    # Find next adjoint
+    # Add adjoint variable μₜ₊₁
     index_mu_next = MOI.VariableIndex[]
+    idx = 1
     for k in 1:nw, i in 1:nx
-        idx = MOI.get(dual.dual_model, MOI.VariableIndex, "coupling_$(k)_$(i)_1")
-        MOI.add_constraint(dual.dual_model, idx, MOI.LessThan{Float64}(lip_ub))
-        MOI.add_constraint(dual.dual_model, idx, MOI.GreaterThan{Float64}(lip_lb))
-        push!(index_mu_next, idx)
+        w = ξ.weights[k]
+        xf = index_xf[idx]
+        vi = MOI.add_variable(dual.dual_model)
+        MOI.set(dual.dual_model, MOI.VariableName(), vi, "μ$(i)_$(k)")
+        push!(index_mu_next, vi)
+        MOI.add_constraint(dual.dual_model, vi, MOI.LessThan{Float64}(lip_ub))
+        MOI.add_constraint(dual.dual_model, vi, MOI.GreaterThan{Float64}(lip_lb))
+
+        # Modify coupling constraints
+        con = dual.primal_dual_map.primal_var_dual_con[xf]
+        # TODO: check sign
+        MOI.modify(
+            dual.dual_model,
+            con,
+            MOI.ScalarCoefficientChange(vi, -w),
+        )
+
+        idx += 1
     end
 
     return dual, index_mu, index_mu_next
@@ -184,13 +205,12 @@ function dual_stage_model(
     hd::HazardDecisionModel, t::Int, lip_lb::Float64, lip_ub::Float64,
 )
     Ξ = uncertainties(hd)
-    nw = length(Ξ[t])
     model = stage_model(hd, t)
 
     # Build extensive one-stage model
-    dest, index_x = _get_extensive_stage_problem(model, Ξ[t])
+    dest, index_x, index_xf = _get_extensive_stage_problem(model, Ξ[t])
     # Build dual MOI model
-    dual, index_mu, index_mu_next = _build_dual_model(dest, index_x, nw, lip_lb, lip_ub)
+    dual, index_mu, index_mu_next = _build_dual_model(dest, index_x, index_xf, Ξ[t], lip_lb, lip_ub)
 
     # Copy dual MOI model into a JuMP model
     dual_model = JuMP.Model()
