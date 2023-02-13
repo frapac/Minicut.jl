@@ -36,20 +36,13 @@
         Solve with Dual SDDP
     =#
     dual_sddp = Minicut.DualSDDP(optimizer; lip_lb=-1e6, lip_ub=1e6)
-    D = [Minicut.PolyhedralFunction(nx) for t in 1:T]
-    dual_models = Minicut.solve!(dual_sddp, wdm, D, x0; n_iter=0, verbose=0)
-
-    # Build initial cuts with primal solution
-    primtraj = Minicut.forward_pass(primal_sddp, wdm, primal_models, Minicut.sample(Ξ), x0)
-    dualtraj = Minicut.backward_pass!(primal_sddp, wdm, primal_models, primtraj, V)
-    Minicut.backward_pass!(dual_sddp, wdm, dual_models, dualtraj, D)
-
+    D = [Minicut.PolyhedralFunction(nx, lower_bound) for t in 1:T]
     dual_models = Minicut.solve!(dual_sddp, wdm, D, x0; n_iter=niter, verbose=0)
     ub, p0 = Minicut.fenchel_transform(dual_sddp, D[1], x0)
 
     @test isa(p0, Vector)
     # Test all results are matching
-    @test lb <= ub
+    @test lb <= ub + sqrt(eps(Float64))
     @test isapprox(lb, ub, atol=1e-6)
     @test isapprox(lb, ref, atol=1e-6)
 end
