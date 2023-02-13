@@ -106,6 +106,8 @@ function _get_extensive_stage_problem(
                 set = MOI.get(src, MOI.ConstraintSet(), con)
                 terms = MOI.ScalarAffineTerm[]
                 constant = w * func.constant
+                rhs = w * _get_rhs(set)
+                new_set = S(rhs)
                 is_coupling = false
                 # Read original constraint
                 for t in func.terms
@@ -122,14 +124,14 @@ function _get_extensive_stage_problem(
                 end
                 # Build new constraint
                 new_func = MOI.ScalarAffineFunction{Float64}(terms, constant)
-                con = MOIU.normalize_and_add_constraint(dest, new_func, set)
+                con = MOIU.normalize_and_add_constraint(dest, new_func, new_set)
                 # Name coupling constraint for future reference
                 name = if is_coupling
                     id_coupling += 1
                     "coupling_$(k)_$(id_coupling)"
                 else
                     id_operational +=1
-                    "op_$(k)_$(id_coupling)"
+                    "op_$(k)_$(id_operational)"
                 end
                 MOI.set(
                     dest,

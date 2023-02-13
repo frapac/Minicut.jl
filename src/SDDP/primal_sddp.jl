@@ -103,7 +103,7 @@ function solve!(
     for i in 1:n_iter
         scen = sample(Ξ)
         primal_trajectory = forward_pass(solver, hdm, models, scen, x₀)
-        backward_pass!(solver, hdm, models, primal_trajectory, V)
+        dual_trajectory = backward_pass!(solver, hdm, models, primal_trajectory, V)
         if (verbose > 0) && (mod(i, verbose) == 0)
             lb = V[1](x₀)
             @printf(" %4i %15.6e\n", i, lb)

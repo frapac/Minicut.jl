@@ -41,7 +41,7 @@ function solve!(sddp::DualSDDP, model::JuMP.Model, μₜ::Vector{Float64})
     fix.(model[:μₜ], μₜ)
     optimize!(model)
     v = JuMP.all_variables(model)
-    @assert termination_status(model) ∈ sddp.valid_statuses println(model)
+    @assert termination_status(model) ∈ sddp.valid_statuses println(termination_status(model))
     return
 end
 
@@ -90,7 +90,7 @@ end
 function fenchel_transform(solver::DualSDDP, D::PolyhedralFunction, x)
     nx = dimension(D)
     model = Model()
-    @variable(model, solver.lipschitz_lb <= λ[1:nx] <= solver.lipschitz_ub)
+    @variable(model, solver.lipschitz_lb <= λ[1:nx] <= 0.0)
     @variable(model, θ)
     for (xk, βk) in eachcut(D)
         @constraint(model, θ >= dot(xk, λ) + βk)
@@ -115,8 +115,11 @@ function solve!(
 
     Ξ = uncertainties(hdm)
     T = horizon(hdm)
-    # Initialize
-    models = [dual_stage_model(hdm, t, solver.lipschitz_lb, solver.lipschitz_ub) for t in 1:T]
+    # Initialize model between time t=1 up to T-1
+    models = [dual_stage_model(hdm, t, solver.lipschitz_lb, solver.lipschitz_ub) for t in 1:T-1]
+    # NB: we define apart the model for final stage and we deactivate
+    #     final co-state (μ₊ = 0) to let Dualization.jl take care of final costs.
+    push!(models, dual_stage_model(hdm, T, 0.0, 0.0))
     for (t, model) in enumerate(models)
         if t < T
             initialize!(solver, model, Ξ[t], D[t+1])
