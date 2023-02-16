@@ -86,12 +86,13 @@ function Minicut.stage_model(bm::BrazilianHydroModel, t::Int)
     β = discount^(t-1)
     cost_spill = 1e-3
     demand = data.demand[(t-1) % 12 + 1, :]
+    exch_costs = bm.data.exchange_costs
     m = Model()
 
     @variable(m, 0.0 <= x[i=1:4] <= bm.xmax[i])
     @variable(m, 0.0 <= xf[i=1:4] <= bm.xmax[i])
     @variable(m, 0.0 <= uturb[i=1:4] <= bm.uturb_max[i])
-    @variable(m, 0.0 <= uspill[i=1:4])
+    @variable(m, 0.0 <= uspill[i=1:4] <= 100000)
 
     @variable(m, 0.0 <= deficit[i=1:4, j=1:4] <= demand[i] * bm.data.deficit[j, 2])
     @variable(m, 0.0 <= exch[i=1:5, j=1:5] <= bm.data.exchange_ub[i, j])
@@ -117,8 +118,7 @@ function Minicut.stage_model(bm::BrazilianHydroModel, t::Int)
             + sum(deficit[k, j] for j in 1:4)
             + uturb[k]
             - sum(exch[k, j] for j in 1:4)
-            + sum(exch[j, k] for j in 1:4)
-            == demand[k]
+            + sum((1.0 - exch_costs[j, k]) * exch[j, k] for j in 1:4) == demand[k]
         )
     end
     ## At residual node
@@ -127,8 +127,8 @@ function Minicut.stage_model(bm::BrazilianHydroModel, t::Int)
     # Objective
     @objective(m, Min,
         β * (
-            cost_spill * sum(uspill)
-            + sum(dot(bm.data.thermals[k][:, 3], utherm[k]) for k in 1:4)
+            cost_spill * sum(uspill) +
+            sum(dot(bm.data.thermals[k][:, 3], utherm[k]) for k in 1:4)
             + sum(bm.data.deficit[j, 1] * deficit[i, j] for i in 1:4, j in 1:4)
         )
     )
@@ -151,22 +151,21 @@ function brazilian(; T=12, max_iter=500, nscenarios=10, nsimus=1000)
     # Initialize value functions.
     lower_bound = -1e6
     V = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T]
-    push!(V, Minicut.PolyhedralFunction(zeros(1, nx), [0.0]))
 
     # Solve with SDDP
     optimizer = JuMP.optimizer_with_attributes(
         HiGHS.Optimizer, "output_flag" => false,
     )
-    solver = Minicut.SDDP(optimizer)
+    solver = Minicut.SDDP(optimizer, [MOI.OPTIMAL, MOI.OTHER_ERROR])
     models = Minicut.solve!(solver, bhm, V, x0; n_iter=max_iter, verbose=10)
 
     # Simulation
     scenarios = Minicut.sample(Minicut.uncertainties(bhm), nsimus)
-    costs = Minicut.simulate!(bhm, models, x0, scenarios)
+    costs = Minicut.simulate!(solver, bhm, models, x0, scenarios)
     ub = mean(costs) + 1.96 * std(costs) / sqrt(nsimus)
     lb = V[1](x0)
 
-    println("Final gap: ", abs(ub - lb) / abs(ub))
-    return xs
+    println("Final statistical gap: ", abs(ub - lb) / abs(ub))
+    return
 end
 

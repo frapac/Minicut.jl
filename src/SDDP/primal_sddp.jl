@@ -27,7 +27,9 @@ function solve!(sddp::SDDP, model::JuMP.Model, xₜ::Vector{Float64}, ξₜ₊�
     fix.(model[:xₜ], xₜ, force = true)
     fix.(model[:ξₜ₊₁], ξₜ₊₁, force = true)
     optimize!(model)
-    @assert termination_status(model) ∈ sddp.valid_statuses
+    if termination_status(model) ∉ sddp.valid_statuses
+        error("[SDDP] Fail to solve primal subproblem: solver's return status is $(termination_status(model))")
+    end
     return
 end
 
@@ -110,5 +112,24 @@ function solve!(
         end
     end
     return models
+end
+
+# Helper function
+function sddp(
+    hdm::HazardDecisionModel,
+    x₀::Array,
+    optimizer;
+    seed=0,
+    n_iter=500,
+    verbose::Int = 1,
+    lower_bound=-1e6,
+    valid_statuses=[MOI.OPTIMAL],
+)
+    (seed >= 0) && Random.seed!(seed)
+    nx, T = number_states(hdm), horizon(hdm)
+    V = [PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T]
+    solver = SDDP(optimizer, valid_statuses)
+    models = solve!(solver, hdm, V, x₀; n_iter=n_iter, verbose=verbose)
+    return (V, models)
 end
 

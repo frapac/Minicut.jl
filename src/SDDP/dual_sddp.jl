@@ -41,7 +41,9 @@ function solve!(sddp::DualSDDP, model::JuMP.Model, μₜ::Vector{Float64})
     fix.(model[:μₜ], μₜ)
     optimize!(model)
     v = JuMP.all_variables(model)
-    @assert termination_status(model) ∈ sddp.valid_statuses println(termination_status(model))
+    if termination_status(model) ∉ sddp.valid_statuses
+        error("[SDDP] Fail to solve dual subproblem: solver's return status is $(termination_status(model))")
+    end
     return
 end
 
@@ -142,5 +144,26 @@ function solve!(
         end
     end
     return models
+end
+
+# Helper function
+function dualsddp(
+    hdm::HazardDecisionModel,
+    x₀::Array,
+    optimizer;
+    seed=0,
+    n_iter=500,
+    verbose::Int = 1,
+    lower_bound=-1e6,
+    lip_ub=+1e10,
+    lip_lb=-1e10,
+    valid_statuses=[MOI.OPTIMAL],
+)
+    (seed >= 0) && Random.seed!(seed)
+    nx, T = number_states(hdm), horizon(hdm)
+    D = [PolyhedralFunction(nx, lower_bound) for t in 1:T]
+    dual_sddp = DualSDDP(optimizer, valid_statuses, lip_lb, lip_ub)
+    dual_models = solve!(dual_sddp, hdm, D, x₀; n_iter=n_iter, verbose=verbose)
+    return (D, dual_models)
 end
 

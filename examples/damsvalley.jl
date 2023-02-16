@@ -78,7 +78,6 @@ function damsvalley(; max_iter=500, nbins=10, nsimus=1000)
     # Initialize value functions.
     lower_bound = -1e6
     V = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T]
-    push!(V, Minicut.PolyhedralFunction(zeros(1, nx), [0.0]))
 
     # Solve with SDDP
     optimizer = JuMP.optimizer_with_attributes(
@@ -89,12 +88,11 @@ function damsvalley(; max_iter=500, nbins=10, nsimus=1000)
 
     # Simulation
     scenarios = Minicut.sample(Minicut.uncertainties(dvm), nsimus)
-    costs = Minicut.simulate!(dvm, models, x0, scenarios)
+    costs = Minicut.simulate!(solver, dvm, models, x0, scenarios)
     ub = mean(costs) + 1.96 * std(costs) / sqrt(nsimus)
     lb = V[1](x0)
 
-    println("Final gap: ", abs(ub - lb) / abs(ub))
-
-    return models
+    println("Final statistical gap: ", abs(ub - lb) / abs(ub))
+    return
 end
 

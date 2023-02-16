@@ -1,6 +1,7 @@
 module Minicut
 
 using Printf
+using Random
 using LinearAlgebra, Statistics
 using JuMP
 using Dualization

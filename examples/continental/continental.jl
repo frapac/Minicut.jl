@@ -1,6 +1,5 @@
 #=
-    Continental example.
-
+    CONTINENTAL example.
 =#
 
 using DelimitedFiles
@@ -165,9 +164,9 @@ function Minicut.stage_model(cm::ContinentalModel, t::Int)
     @variable(m, 0.0 <= x[i=1:nz] <= cm.xmax[i])
     @variable(m, 0.0 <= xf[i=1:nz] <= cm.xmax[i])
     @variable(m, 0.0 <= uturb[i=1:nz] <= cm.uturb_max[i])
-    @variable(m, 0.0 <= uspill[1:nz])
+    @variable(m, 0.0 <= uspill[1:nz] <= 10000.0)
     @variable(m, 0.0 <= utherm[i=1:nz] <= cm.utherm_max[i])
-    @variable(m, 0.0 <= urecourse[1:nz])
+    @variable(m, 0.0 <= urecourse[1:nz] <= 10000.0)
     @variable(m, -cm.qmax[i] <= flows[i=1:na] <= cm.qmax[i])
 
     @variable(m, inflows[1:nz])
@@ -215,7 +214,6 @@ function continental(; names=[:FRA, :GER, :ESP, :PT, :ITA, :SUI, :UK, :BEL], T=1
     # Initialize value functions.
     lower_bound = -1e6
     V = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T]
-    push!(V, Minicut.PolyhedralFunction(zeros(1, nx), [0.0]))
 
     # Solve with SDDP
     optimizer = JuMP.optimizer_with_attributes(
@@ -226,12 +224,11 @@ function continental(; names=[:FRA, :GER, :ESP, :PT, :ITA, :SUI, :UK, :BEL], T=1
 
     # Simulation
     scenarios = Minicut.sample(Minicut.uncertainties(cm), nsimus)
-    costs = Minicut.simulate!(cm, models, x0, scenarios)
+    costs = Minicut.simulate!(solver, cm, models, x0, scenarios)
     ub = mean(costs) + 1.96 * std(costs) / sqrt(nsimus)
     lb = V[1](x0)
 
-    println("Final gap: ", abs(ub - lb) / abs(ub))
-
+    println("Final statistical gap: ", abs(ub - lb) / abs(ub))
     return
 end
 
