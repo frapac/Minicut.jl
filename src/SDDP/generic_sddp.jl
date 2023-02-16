@@ -90,4 +90,26 @@ function simulate!(
     return costs
 end
 
+function sample_trajectory!(
+    sddp::AbstractSDDP,
+    hdm::HazardDecisionModel,
+    models::Vector{JuMP.Model},
+    initial_state::Vector{Float64},
+    uncertainty_scenario::Vector{Array{Float64, 2}},
+)
+    Ξ = uncertainties(hdm)
+    n_states, n_scenarios = number_states(hdm), length(uncertainty_scenario)
+    trajectory = zeros(n_scenarios, horizon(hdm)+1, n_states)
+    for k in 1:n_scenarios
+        trajectory[k, 1, :] .= initial_state
+    end
+    # NB: inverting the for loops is more efficient
+    for t in 1:horizon(hdm)
+        for k in 1:n_scenarios
+            ξ = uncertainty_scenario[k][:, t]
+            trajectory[k, t+1, :] .= next!(sddp, models[t], trajectory[k, t, :], Ξ[t], ξ)
+        end
+    end
+    return trajectory
+end
 
