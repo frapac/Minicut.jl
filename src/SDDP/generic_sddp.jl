@@ -64,6 +64,34 @@ function backward_pass!(
 end
 
 #=
+    CUPPS pass
+=#
+
+function cupps_pass!(
+    sddp::AbstractSDDP,
+    hdm::HazardDecisionModel,
+    models::Vector{JuMP.Model},
+    uncertainty_scenario::Array{Float64, 2},
+    initial_state::Vector{Float64},
+    V::Vector{PolyhedralFunction},
+)
+    Ξ = uncertainties(hdm)
+    nx, T = number_states(hdm), horizon(hdm)
+    trajectory = fill(0.0, nx, T + 1)
+    trajectory[:, 1] .= initial_state
+    for (t, ξₜ₊₁) in enumerate(eachcol(uncertainty_scenario))
+        model = models[t]
+        trajectory[:, t+1] .= next!(sddp, model, trajectory[:, t], Ξ[t], collect(ξₜ₊₁))
+        # Fetch cut and add it directly.
+        λ = fetch_cut(sddp, model)
+        γ = JuMP.objective_value(model) - dot(λ, trajectory[:, t])
+        add_cut!(V[t], λ, γ)
+        (t > 1) && synchronize!(sddp, models[t-1], V[t])
+    end
+    return trajectory
+end
+
+#=
     Simulation
 =#
 

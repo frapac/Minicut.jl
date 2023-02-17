@@ -33,6 +33,8 @@ function solve!(sddp::SDDP, model::JuMP.Model, xₜ::Vector{Float64}, ξₜ₊�
     return
 end
 
+fetch_cut(sddp::SDDP, model::JuMP.Model) = dual.(FixRef.(model[:xₜ]))
+
 function stage_objective_value(sddp::SDDP, model::JuMP.Model, hdm::HazardDecisionModel, t)
     if t == horizon(hdm)
         return JuMP.objective_value(model)
@@ -66,7 +68,7 @@ function previous!(
     γ = 0.0
     for (i, πᵢ) in enumerate(πₜ₊₁)
         solve!(sddp, model, xₜ, ξₜ₊₁[:, i])
-        λᵢ = dual.(FixRef.(model[:xₜ]))
+        λᵢ = fetch_cut(sddp, model)
         axpy!(πᵢ, λᵢ, λ)
         γ += πᵢ * (objective_value(model) - dot(λᵢ, xₜ))
     end

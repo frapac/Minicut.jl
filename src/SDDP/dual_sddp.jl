@@ -47,6 +47,8 @@ function solve!(sddp::DualSDDP, model::JuMP.Model, μₜ::Vector{Float64})
     return
 end
 
+fetch_cut(sddp::DualSDDP, model::JuMP.Model) = dual.(FixRef.(model[:μₜ]))
+
 function next!(
     sddp::DualSDDP,
     model::JuMP.Model,
@@ -70,7 +72,7 @@ function previous!(
 )
     nx = length(μₜ)
     solve!(sddp, model, μₜ)
-    x = dual.(FixRef.(model[:μₜ]))
+    x = fetch_cut(sddp, model)
     γ = objective_value(model) - dot(x, μₜ)
     add_cut!(Dₜ, x, γ)
     return x
@@ -136,7 +138,7 @@ function solve!(
     for i in 1:n_iter
         lb, p₀ = fenchel_transform(solver, D[1], x₀)
         scenario = sample(Ξ)
-        dual_trajectory = forward_pass(solver, hdm, models, scenario, p₀)
+        dual_trajectory = cupps_pass!(solver, hdm, models, scenario, p₀, D)
         primal_trajectory = backward_pass!(solver, hdm, models, dual_trajectory, D)
         lb, p₀ = fenchel_transform(solver, D[1], x₀)
         if (verbose > 0) && (mod(i, verbose) == 0)
