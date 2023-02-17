@@ -63,9 +63,9 @@ function add_children!(
     # Load MOI model
     src = JuMP.backend(model)
     all_index = MOI.get(src, MOI.ListOfVariableIndices())
-    index_x = index.(model[:xₜ])
-    index_xf = index.(model[:xₜ₊₁])
-    index_ξ = index.(model[:ξₜ₊₁])
+    index_x = index.(model[_PREVIOUS_STATE])
+    index_xf = index.(model[_CURRENT_STATE])
+    index_ξ = index.(model[_UNCERTAINTIES])
     index_edges = [iu for iu in all_index if iu ∉ [index_x; index_xf; index_ξ]]
     nx = length(index_x)
 
@@ -205,8 +205,8 @@ function solve!(
     root_node = extensive.scenario_tree[1]
     @assert isnothing(root_node.parent)
     index_x0 = root_node.state
-    model[:x₀] = JuMP.VariableRef[JuMP.VariableRef(model, idx[ix]) for ix in index_x0]
-    JuMP.fix.(model[:x₀], x0)
+    model[_INITIAL_STATE] = JuMP.VariableRef[JuMP.VariableRef(model, idx[ix]) for ix in index_x0]
+    JuMP.fix.(model[_INITIAL_STATE], x0)
     # Solve extensive formulation
     JuMP.set_optimizer(model, ext.optimizer)
     JuMP.optimize!(model)

@@ -18,16 +18,16 @@ introduce(::SDDP) = "Primal SDDP"
 function initialize!(::SDDP, model::JuMP.Model, Vₜ₊₁::PolyhedralFunction)
     @variable(model, θ)
     for (λ, γ) in eachcut(Vₜ₊₁)
-        @constraint(model, θ >= λ' * model[:xₜ₊₁] + γ)
+        @constraint(model, θ >= λ' * model[_CURRENT_STATE] + γ)
     end
     obj_expr = objective_function(model)
     @objective(model, Min, obj_expr + θ)
     return
 end
 
-function solve!(sddp::SDDP, model::JuMP.Model, xₜ::Vector{Float64}, ξₜ₊₁::Vector{Float64})
-    fix.(model[:xₜ], xₜ, force = true)
-    fix.(model[:ξₜ₊₁], ξₜ₊₁, force = true)
+function solve_stage_problem!(sddp::SDDP, model::JuMP.Model, xₜ::Vector{Float64}, ξₜ₊₁::Vector{Float64})
+    fix.(model[_PREVIOUS_STATE], xₜ, force = true)
+    fix.(model[_UNCERTAINTIES], ξₜ₊₁, force = true)
     optimize!(model)
     if termination_status(model) ∉ sddp.valid_statuses
         error("[SDDP] Fail to solve primal subproblem: solver's return status is $(termination_status(model))")
@@ -35,13 +35,13 @@ function solve!(sddp::SDDP, model::JuMP.Model, xₜ::Vector{Float64}, ξₜ₊�
     return
 end
 
-fetch_cut(sddp::SDDP, model::JuMP.Model) = dual.(FixRef.(model[:xₜ]))
+fetch_cut(sddp::SDDP, model::JuMP.Model) = dual.(FixRef.(model[_PREVIOUS_STATE]))
 
 function stage_objective_value(sddp::SDDP, model::JuMP.Model, hdm::HazardDecisionModel, t)
     if t == horizon(hdm)
         return JuMP.objective_value(model)
     else
-        Vx = JuMP.value.(model[:θ])
+        Vx = JuMP.value.(model[_VALUE_FUNCTION])
         return JuMP.objective_value(model) - Vx
     end
 end
@@ -53,8 +53,8 @@ function next!(
     ξ::DiscreteRandomVariable{Float64},
     ξₜ₊₁::Vector{Float64},
 )
-    solve!(sddp, model, xₜ, ξₜ₊₁)
-    return value.(model[:xₜ₊₁])
+    solve_stage_problem!(sddp, model, xₜ, ξₜ₊₁)
+    return value.(model[_CURRENT_STATE])
 end
 
 function previous!(
@@ -69,7 +69,7 @@ function previous!(
     λ = zeros(nx)
     γ = 0.0
     for (i, πᵢ) in enumerate(πₜ₊₁)
-        solve!(sddp, model, xₜ, ξₜ₊₁[:, i])
+        solve_stage_problem!(sddp, model, xₜ, ξₜ₊₁[:, i])
         λᵢ = fetch_cut(sddp, model)
         axpy!(πᵢ, λᵢ, λ)
         γ += πᵢ * (objective_value(model) - dot(λᵢ, xₜ))
@@ -79,7 +79,7 @@ function previous!(
 end
 
 function synchronize!(::SDDP, model::JuMP.Model, Vₜ₊₁::PolyhedralFunction)
-    @constraint(model, model[:θ] >= Vₜ₊₁.λ[end, :]' * model[:xₜ₊₁] + Vₜ₊₁.γ[end])
+    @constraint(model, model[_VALUE_FUNCTION] >= Vₜ₊₁.λ[end, :]' * model[_CURRENT_STATE] + Vₜ₊₁.γ[end])
     return
 end
 

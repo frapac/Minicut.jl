@@ -16,11 +16,11 @@
         primal_model = JuMP.Model()
         idx_map = MOI.copy_to(primal_model, moi_model)
         @test length(index_x) == nx
-        primal_model[:x0] = [JuMP.VariableRef(primal_model, idx_map[vi]) for vi in index_x]
+        primal_model[Minicut._INITIAL_STATE] = [JuMP.VariableRef(primal_model, idx_map[vi]) for vi in index_x]
 
         # Solve primal model
         JuMP.set_optimizer(primal_model, optimizer)
-        JuMP.fix.(primal_model[:x0], x0)
+        JuMP.fix.(primal_model[Minicut._INITIAL_STATE], x0)
         JuMP.optimize!(primal_model)
         @test JuMP.termination_status(primal_model) == MOI.OPTIMAL
         obj_primal = JuMP.objective_value(primal_model)
@@ -31,8 +31,8 @@
         for k in 1:length(Ξ[t])
             w = Ξ[t].weights[k]
             ξ = Ξ[t].supports[:, k]
-            JuMP.fix.(model[:xₜ], x0; force=true)
-            JuMP.fix.(model[:ξₜ₊₁], ξ)
+            JuMP.fix.(model[Minicut._PREVIOUS_STATE], x0; force=true)
+            JuMP.fix.(model[Minicut._UNCERTAINTIES], ξ)
             JuMP.optimize!(model)
             obj_ref += w * JuMP.objective_value(model)
         end
@@ -58,11 +58,11 @@
         # the co-states μₜ and μₜ₊₁
         @test nvar_dual == ncon + (nx + nw * nx)
         # Co-state [t]
-        μ = dual_model[:μₜ]
+        μ = dual_model[Minicut._PREVIOUS_COSTATE]
         @test isa(μ, Vector{JuMP.VariableRef})
         @test length(μ) == nx
         # Co-state [t+1]
-        μf = dual_model[:μₜ₊₁]
+        μf = dual_model[Minicut._CURRENT_COSTATE]
         @test isa(μf, Vector{JuMP.VariableRef})
         @test length(μf) == nx * nw
         # Fix co-state

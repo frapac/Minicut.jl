@@ -35,9 +35,9 @@ function _get_extensive_stage_problem(
 
     # Indexing
     all_index = MOI.get(src, MOI.ListOfVariableIndices())
-    index_x = index.(model[:xₜ])
-    index_xf = index.(model[:xₜ₊₁])
-    index_ξ = index.(model[:ξₜ₊₁])
+    index_x = index.(model[_PREVIOUS_STATE])
+    index_xf = index.(model[_CURRENT_STATE])
+    index_ξ = index.(model[_UNCERTAINTIES])
     index_edges = [iu for iu in all_index if iu ∉ [index_x; index_ξ]]
     nx, nu = length(index_x), length(index_edges)
 
@@ -218,8 +218,8 @@ function dual_stage_model(
     dual_model = JuMP.Model()
     idx_map = MOI.copy_to(dual_model, dual.dual_model)
     # Build correspondance for dual co-states
-    dual_model[:μₜ] = JuMP.VariableRef[JuMP.VariableRef(dual_model, idx_map[ix]) for ix in index_mu]
-    dual_model[:μₜ₊₁] = JuMP.VariableRef[JuMP.VariableRef(dual_model, idx_map[ix]) for ix in index_mu_next]
+    dual_model[_PREVIOUS_COSTATE] = JuMP.VariableRef[JuMP.VariableRef(dual_model, idx_map[ix]) for ix in index_mu]
+    dual_model[_CURRENT_COSTATE] = JuMP.VariableRef[JuMP.VariableRef(dual_model, idx_map[ix]) for ix in index_mu_next]
 
     return dual_model
 end

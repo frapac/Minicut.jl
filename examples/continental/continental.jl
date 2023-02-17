@@ -108,7 +108,7 @@ struct ContinentalModel <: HazardDecisionModel
 end
 
 function ContinentalModel(
-    names, T; nscenarios=10,
+    T; names=[:FRA, :GER, :ESP, :PT, :ITA, :SUI, :UK, :BEL], nscenarios=10,
 )
     nzones = length(names)
     # Raw data
@@ -162,8 +162,8 @@ function Minicut.stage_model(cm::ContinentalModel, t::Int)
 
     m = Model()
 
-    @variable(m, 0.0 <= x[i=1:nz] <= cm.xmax[i])
-    @variable(m, 0.0 <= xf[i=1:nz] <= cm.xmax[i])
+    @variable(m, 0.0 <= dams[i=1:nz] <= cm.xmax[i])
+    @variable(m, 0.0 <= damsf[i=1:nz] <= cm.xmax[i])
     @variable(m, 0.0 <= uturb[i=1:nz] <= cm.uturb_max[i])
     @variable(m, 0.0 <= uspill[1:nz] <= 10000.0)
     @variable(m, 0.0 <= utherm[i=1:nz] <= cm.utherm_max[i])
@@ -175,7 +175,7 @@ function Minicut.stage_model(cm::ContinentalModel, t::Int)
 
     # Dynamics
     for n in 1:nz
-        @constraint(m, xf[n] == x[n] - uturb[n] - uspill[n] + inflows[n])
+        @constraint(m, damsf[n] == dams[n] - uturb[n] - uspill[n] + inflows[n])
     end
 
     # Balance equations
@@ -189,7 +189,7 @@ function Minicut.stage_model(cm::ContinentalModel, t::Int)
         @objective(m, Min, dot(cm.ctherm[:, t], utherm) + cm.cpenal * sum(urecourse) + cm.cexch * sum(flows))
     elseif t == Minicut.horizon(cm)
         @variable(m, K[1:nz] >= 0.0)
-        @constraint(m, K .>= cm.x0 .- xf)
+        @constraint(m, K .>= cm.x0 .- damsf)
         @objective(
             m,
             Min,
@@ -197,10 +197,10 @@ function Minicut.stage_model(cm::ContinentalModel, t::Int)
         )
     end
 
-    @expression(m, xₜ, x)
-    @expression(m, uₜ₊₁, [uturb; uspill; utherm; urecourse; flows])
-    @expression(m, xₜ₊₁, xf)
-    @expression(m, ξₜ₊₁, [inflows ; demands])
+    @expression(m, x₋, dams)
+    @expression(m, u, [uturb; uspill; utherm; urecourse; flows])
+    @expression(m, x, damsf)
+    @expression(m, ξ, [inflows ; demands])
 
     return m
 end
@@ -208,7 +208,7 @@ end
 function continental(; names=[:FRA, :GER, :ESP, :PT, :ITA, :SUI, :UK, :BEL], T=12, max_iter=500, nscenarios=10, nsimus=1000)
     Random.seed!(2713)
 
-    cm = ContinentalModel(names, T; nscenarios=nscenarios)
+    cm = ContinentalModel(T; names=names, nscenarios=nscenarios)
     nx = Minicut.number_states(cm)
     x0 = cm.x0
 

@@ -36,34 +36,34 @@ Minicut.name(dvm::DamsValleyModel) = "Academic dams-valley"
 function Minicut.stage_model(dvm::DamsValleyModel, t::Int)
     m = Model()
 
-    @variable(m, 0 <= x[1:5] <= dvm.capacity)
-    @variable(m, 0 <= xf[1:5] <= dvm.capacity)
-    @variable(m, 0 <= u[1:5] <= dvm.umax)
-    @variable(m, 0 <= s[1:5] <= dvm.smax)
+    @variable(m, 0 <= dams[1:5] <= dvm.capacity)
+    @variable(m, 0 <= damsf[1:5] <= dvm.capacity)
+    @variable(m, 0 <= uturb[1:5] <= dvm.umax)
+    @variable(m, 0 <= spill[1:5] <= dvm.smax)
     @variable(m, inflow[1:5])
 
     # Dynamics
     # dam1 -> dam2 -> dam3 -> dam4 -> dam5
     @constraints(m, begin
-        xf[1] == x[1] - u[1] - s[1] + inflow[1]
-        xf[2] == x[2] + u[1] + s[1] - u[2] - s[2] + inflow[2]
-        xf[3] == x[3] + u[2] + s[2] - u[3] - s[3] + inflow[3]
-        xf[4] == x[4] + u[3] + s[3] - u[4] - s[4] + inflow[4]
-        xf[5] == x[5] + u[4] + s[4] - u[5] - s[5] + inflow[5]
+        damsf[1] == dams[1] - uturb[1] - spill[1] + inflow[1]
+        damsf[2] == dams[2] + uturb[1] + spill[1] - uturb[2] - spill[2] + inflow[2]
+        damsf[3] == dams[3] + uturb[2] + spill[2] - uturb[3] - spill[3] + inflow[3]
+        damsf[4] == dams[4] + uturb[3] + spill[3] - uturb[4] - spill[4] + inflow[4]
+        damsf[5] == dams[5] + uturb[4] + spill[4] - uturb[5] - spill[5] + inflow[5]
     end)
 
     if t < Minicut.horizon(dvm)
-        @objective(m, Min, -dvm.csell[t] * sum(u))
+        @objective(m, Min, -dvm.csell[t] * sum(uturb))
     elseif t == Minicut.horizon(dvm)
         @variable(m, K[1:5] >= 0.0)
-        @constraint(m, K .>= 40.0 .- xf)
-        @objective(m, Min, -dvm.csell[t] * sum(u) + 500.0 * sum(K))
+        @constraint(m, K .>= 40.0 .- damsf)
+        @objective(m, Min, -dvm.csell[t] * sum(uturb) + 500.0 * sum(K))
     end
 
-    @expression(m, xₜ, x)
-    @expression(m, uₜ₊₁, [u; s])
-    @expression(m, xₜ₊₁, xf)
-    @expression(m, ξₜ₊₁, inflow)
+    @expression(m, x₋, dams)
+    @expression(m, u, [uturb; spill])
+    @expression(m, x, damsf)
+    @expression(m, ξ, inflow)
 
     return m
 end

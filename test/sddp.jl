@@ -39,8 +39,8 @@ using Statistics
         @test isa(primal_scenarios, Array{Float64, 2})
         @test size(primal_scenarios) == (nx, T+1)
         # Test JuMP model is well defined
-        @test JuMP.value.(models[1][:xₜ]) == x0
-        @test JuMP.value.(models[1][:ξₜ₊₁]) == scenario[:, 1]
+        @test JuMP.value.(models[1][Minicut._PREVIOUS_STATE]) == x0
+        @test JuMP.value.(models[1][Minicut._UNCERTAINTIES]) == scenario[:, 1]
 
         dual_scenarios = Minicut.backward_pass!(sddp, wdm, models, primal_scenarios, V)
         @test size(dual_scenarios) == size(primal_scenarios)

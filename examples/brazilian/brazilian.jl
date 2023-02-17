@@ -90,8 +90,8 @@ function Minicut.stage_model(bm::BrazilianHydroModel, t::Int)
     exch_costs = bm.data.exchange_costs
     m = Model()
 
-    @variable(m, 0.0 <= x[i=1:4] <= bm.xmax[i])
-    @variable(m, 0.0 <= xf[i=1:4] <= bm.xmax[i])
+    @variable(m, 0.0 <= dams[i=1:4] <= bm.xmax[i])
+    @variable(m, 0.0 <= damsf[i=1:4] <= bm.xmax[i])
     @variable(m, 0.0 <= uturb[i=1:4] <= bm.uturb_max[i])
     @variable(m, 0.0 <= uspill[i=1:4] <= 100000)
 
@@ -109,7 +109,7 @@ function Minicut.stage_model(bm::BrazilianHydroModel, t::Int)
 
     # Dynamics
     for k in 1:4
-        @constraint(m, xf[k] == x[k] - uturb[k] - uspill[k] + inflows[k])
+        @constraint(m, damsf[k] == dams[k] - uturb[k] - uspill[k] + inflows[k])
     end
 
     # Exchange
@@ -134,10 +134,10 @@ function Minicut.stage_model(bm::BrazilianHydroModel, t::Int)
         )
     )
 
-    @expression(m, xₜ, x)
-    @expression(m, xₜ₊₁, xf)
-    @expression(m, uₜ₊₁, [uturb; uspill; utherm[1] ; utherm[2] ; utherm[3] ; utherm[4]; deficit[:]; exch[:]])
-    @expression(m, ξₜ₊₁, inflows)
+    @expression(m, x₋, dams)
+    @expression(m, x, damsf)
+    @expression(m, u, [uturb; uspill; utherm[1] ; utherm[2] ; utherm[3] ; utherm[4]; deficit[:]; exch[:]])
+    @expression(m, ξ, inflows)
 
     return m
 end

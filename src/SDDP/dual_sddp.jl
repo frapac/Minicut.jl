@@ -18,8 +18,8 @@ introduce(::DualSDDP) = "Dual SDDP"
 =#
 
 function _next_costate_reference(model::JuMP.Model, k::Int)
-    nx = length(model[:μₜ])
-    costates = model[:μₜ₊₁]
+    nx = length(model[_PREVIOUS_COSTATE])
+    costates = model[_CURRENT_COSTATE]
     f, t = (k-1) * nx + 1, k * nx
     return costates[f:t]
 end
@@ -39,8 +39,8 @@ function initialize!(::DualSDDP, model::JuMP.Model, ξₜ₊₁::DiscreteRandomV
     return
 end
 
-function solve!(sddp::DualSDDP, model::JuMP.Model, μₜ::Vector{Float64})
-    fix.(model[:μₜ], μₜ)
+function solve_stage_problem!(sddp::DualSDDP, model::JuMP.Model, μₜ::Vector{Float64})
+    fix.(model[_PREVIOUS_COSTATE], μₜ)
     optimize!(model)
     v = JuMP.all_variables(model)
     if termination_status(model) ∉ sddp.valid_statuses
@@ -49,7 +49,7 @@ function solve!(sddp::DualSDDP, model::JuMP.Model, μₜ::Vector{Float64})
     return
 end
 
-fetch_cut(sddp::DualSDDP, model::JuMP.Model) = dual.(FixRef.(model[:μₜ]))
+fetch_cut(sddp::DualSDDP, model::JuMP.Model) = dual.(FixRef.(model[_PREVIOUS_COSTATE]))
 
 function next!(
     sddp::DualSDDP,
@@ -58,7 +58,7 @@ function next!(
     ξ::DiscreteRandomVariable{Float64},
     ξₜ₊₁::Vector{Float64},
 )
-    solve!(sddp, model, μₜ)
+    solve_stage_problem!(sddp, model, μₜ)
     k = find_outcome(ξ, ξₜ₊₁)
     @assert 1 <= k <= length(ξ)
     μf = _next_costate_reference(model, k)
@@ -73,7 +73,7 @@ function previous!(
     Dₜ::PolyhedralFunction,
 )
     nx = length(μₜ)
-    solve!(sddp, model, μₜ)
+    solve_stage_problem!(sddp, model, μₜ)
     x = fetch_cut(sddp, model)
     γ = objective_value(model) - dot(x, μₜ)
     add_cut!(Dₜ, x, γ)
@@ -81,10 +81,10 @@ function previous!(
 end
 
 function synchronize!(::DualSDDP, model::JuMP.Model, Dₜ₊₁::PolyhedralFunction)
-    nw = length(model[:θ])
+    nw = length(model[_VALUE_FUNCTION])
     for k in 1:nw
         μk = _next_costate_reference(model, k)
-        @constraint(model, model[:θ][k] >= Dₜ₊₁.λ[end, :]' * μk + Dₜ₊₁.γ[end])
+        @constraint(model, model[_VALUE_FUNCTION][k] >= Dₜ₊₁.λ[end, :]' * μk + Dₜ₊₁.γ[end])
     end
     return
 end

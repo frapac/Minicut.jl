@@ -31,17 +31,17 @@ function Minicut.stage_model(wdm::WaterDamModel, t::Int)
     @variable(m, 0 <= l1 <= wdm.capacity)
     @variable(m, 0 <= l2 <= wdm.capacity)
     @variable(m, r2)
-    @variable(m, 0 <= u <= wdm.umax)
-    @variable(m, 0 <= s <= 10000.0)
+    @variable(m, 0 <= turb <= wdm.umax)
+    @variable(m, 0 <= spill <= 10000.0)
 
-    @constraint(m, l2 == l1 - u + r2 - s)
+    @constraint(m, l2 == l1 - turb + r2 - spill)
 
-    @objective(m, Min, -wdm.csell[t] * u)
+    @objective(m, Min, -wdm.csell[t] * turb)
 
-    @expression(m, xₜ, [l1])
-    @expression(m, uₜ₊₁, [u, s])
-    @expression(m, xₜ₊₁, [l2])
-    @expression(m, ξₜ₊₁, [r2])
+    @expression(m, x₋, [l1])
+    @expression(m, u, [turb, spill])
+    @expression(m, x, [l2])
+    @expression(m, ξ, [r2])
 
     return m
 end
