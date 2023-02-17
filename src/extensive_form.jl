@@ -157,7 +157,7 @@ function build_scenario_tree(
     Ξ = Minicut.uncertainties(hm)
     final_time = Minicut.horizon(hm)
     # Test that scenario tree is not too large
-    @assert number_nodes(Ξ)[final_time] <= 5000
+    @assert number_nodes(Ξ)[final_time+1] <= max_nodes
     # Load and cache one stage models
     models = [Minicut.stage_model(hm, t) for t in 1:final_time]
 
@@ -194,9 +194,10 @@ end
 function solve!(
     ext::ExtensiveFormulationSolver,
     hm::HazardDecisionModel,
-    x0::Array,
+    x0::Array;
+    max_nodes=5000,
 )
-    extensive = build_scenario_tree(hm)
+    extensive = build_scenario_tree(hm; max_nodes=max_nodes)
     # Copy MOI model to a new JuMP model
     model = JuMP.Model()
     idx = MOI.copy_to(model, extensive.moi_model)
@@ -210,5 +211,20 @@ function solve!(
     JuMP.set_optimizer(model, ext.optimizer)
     JuMP.optimize!(model)
     return model
+end
+
+function extensive(
+    hdm::HazardDecisionModel,
+    x₀::Array,
+    optimizer;
+    max_nodes=5000,
+)
+    extensive_solver = ExtensiveFormulationSolver(optimizer)
+    model = solve!(extensive_solver, hdm, x₀; max_nodes=max_nodes)
+    return (
+        status=JuMP.termination_status(model),
+        optimum=JuMP.objective_value(model),
+        model=model,
+    )
 end
 

@@ -154,6 +154,7 @@ end
 Minicut.uncertainties(cm::ContinentalModel) = cm.uncertainties
 Minicut.horizon(cm::ContinentalModel) = cm.T
 Minicut.number_states(cm::ContinentalModel) = cm.nzones
+Minicut.name(cm::ContinentalModel) = "CONTINENTAL"
 
 function Minicut.stage_model(cm::ContinentalModel, t::Int)
     nz = cm.nzones

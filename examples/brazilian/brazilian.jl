@@ -80,6 +80,7 @@ end
 Minicut.uncertainties(bhm::BrazilianHydroModel) = bhm.inflows
 Minicut.horizon(bhm::BrazilianHydroModel) = bhm.T
 Minicut.number_states(bhm::BrazilianHydroModel) = 4
+Minicut.name(bhm::BrazilianHydroModel) = "Brazilian hydro-thermal generation problem"
 
 function Minicut.stage_model(bm::BrazilianHydroModel, t::Int)
     discount = 0.9906

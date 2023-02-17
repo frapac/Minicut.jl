@@ -9,6 +9,8 @@ end
 
 SDDP(optimizer) = SDDP(optimizer, [MOI.OPTIMAL])
 
+introduce(::SDDP) = "Primal SDDP"
+
 #=
     One-stage problem
 =#
@@ -81,6 +83,18 @@ function synchronize!(::SDDP, model::JuMP.Model, Vₜ₊₁::PolyhedralFunction)
     return
 end
 
+function build_stage_models(solver::SDDP, hdm::HazardDecisionModel, V::Vector{PolyhedralFunction})
+    T = horizon(hdm)
+    models = [stage_model(hdm, t) for t in 1:T]
+    for (t, model) in enumerate(models)
+        if t < T
+            initialize!(solver, model, V[t+1])
+        end
+        JuMP.set_optimizer(model, solver.optimizer)
+    end
+    return models
+end
+
 function solve!(
     solver::SDDP,
     hdm::HazardDecisionModel,
@@ -89,20 +103,22 @@ function solve!(
     n_iter=100,
     verbose::Int = 1,
 )
-    (verbose > 0) && println("** Minicut SDDP **")
+    (verbose > 0) && header()
 
-    T = horizon(hdm)
-    # Initialize
-    models = [stage_model(hdm, t) for t in 1:T]
-    for (t, model) in enumerate(models)
-        if t < T
-            initialize!(solver, model, V[t+1])
-        end
-        JuMP.set_optimizer(model, solver.optimizer)
-    end
-
+    models = build_stage_models(solver, hdm, V)
     Ξ = uncertainties(hdm)
 
+    if verbose > 0
+        println("Algorithm: ", introduce(solver))
+        println("    Solver:  ", solver.optimizer.optimizer_constructor)
+        @printf("\n")
+        println(hdm)
+        @printf("\n")
+        @printf(" %4s %15s\n", "-"^4, "-"^15)
+        @printf(" %4s %15s\n", "#it", "LB")
+    end
+
+    tic = time()
     # Run
     for i in 1:n_iter
         scen = sample(Ξ)
@@ -113,6 +129,15 @@ function solve!(
             @printf(" %4i %15.6e\n", i, lb)
         end
     end
+
+    if verbose > 0
+        lb = V[1](x₀)
+        @printf(" %4s %15s\n\n", "-"^4, "-"^15)
+        @printf("Number of iterations.........: %7i\n", n_iter)
+        @printf("Total wall-clock time (sec)..: %7.3f\n\n", time() - tic)
+        @printf("Lower-bound.....: %15.8e\n", lb)
+    end
+
     return models
 end
 
@@ -132,6 +157,6 @@ function sddp(
     V = [PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T]
     solver = SDDP(optimizer, valid_statuses)
     models = solve!(solver, hdm, V, x₀; n_iter=n_iter, verbose=verbose)
-    return (V, models)
+    return (cuts=V, models=models, lower_bound=V[1](x₀))
 end
 

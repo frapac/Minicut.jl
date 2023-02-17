@@ -3,6 +3,7 @@ abstract type AbstractSDDP <: AbstractStochasticOptimizer end
 
 include("primal_sddp.jl")
 include("dual_sddp.jl")
+include("mixed_sddp.jl")
 
 #=
     Generic Forward pass

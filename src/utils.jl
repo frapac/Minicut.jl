@@ -63,3 +63,7 @@ function number_nodes(vs::Vector{DiscreteRandomVariable{T}}) where T
     return counts
 end
 
+function header()
+    println("This is Minicut 0.1.0.\n")
+end
+

@@ -31,6 +31,7 @@ end
 Minicut.uncertainties(dvm::DamsValleyModel) = dvm.inflows
 Minicut.horizon(dvm::DamsValleyModel) = dvm.T
 Minicut.number_states(dvm::DamsValleyModel) = 5
+Minicut.name(dvm::DamsValleyModel) = "Academic dams-valley"
 
 function Minicut.stage_model(dvm::DamsValleyModel, t::Int)
     m = Model()

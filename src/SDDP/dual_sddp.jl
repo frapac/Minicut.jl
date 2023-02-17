@@ -11,6 +11,8 @@ end
 
 DualSDDP(optimizer; lip_lb=-1e10, lip_ub=1e10) = DualSDDP(optimizer, [MOI.OPTIMAL], lip_lb, lip_ub)
 
+introduce(::DualSDDP) = "Dual SDDP"
+
 #=
     One-stage problem
 =#
@@ -107,16 +109,7 @@ function fenchel_transform(solver::DualSDDP, D::PolyhedralFunction, x)
     return JuMP.objective_value(model), JuMP.value.(λ)
 end
 
-function solve!(
-    solver::DualSDDP,
-    hdm::HazardDecisionModel,
-    D::Array{PolyhedralFunction},
-    x₀::Array;
-    n_iter=100,
-    verbose::Int = 1,
-)
-    (verbose > 0) && println("** Minicut SDDP **")
-
+function build_stage_models(solver::DualSDDP, hdm::HazardDecisionModel, D::Vector{PolyhedralFunction})
     Ξ = uncertainties(hdm)
     T = horizon(hdm)
     # Initialize model between time t=1 up to T-1
@@ -128,23 +121,57 @@ function solve!(
         if t < T
             initialize!(solver, model, Ξ[t], D[t+1])
         else
-            # TODO: clean reformulation
             obj_expr = objective_function(model)
             @objective(model, Min, -obj_expr)
         end
         JuMP.set_optimizer(model, solver.optimizer)
     end
+    return models
+end
+
+function solve!(
+    solver::DualSDDP,
+    hdm::HazardDecisionModel,
+    D::Array{PolyhedralFunction},
+    x₀::Array;
+    n_iter=100,
+    verbose::Int = 1,
+)
+    (verbose > 0) && header()
+
+    models = build_stage_models(solver, hdm, D)
+    Ξ = uncertainties(hdm)
+
+    if verbose > 0
+        println("Algorithm: ", introduce(solver))
+        println("    Solver:  ", solver.optimizer.optimizer_constructor)
+        @printf("\n")
+        println(hdm)
+        @printf("\n")
+        @printf(" %4s %15s\n", "-"^4, "-"^15)
+        @printf(" %4s %15s\n", "#it", "UB")
+    end
+
     # Run
+    tic = time()
+    ub, p₀ = fenchel_transform(solver, D[1], x₀)
     for i in 1:n_iter
-        lb, p₀ = fenchel_transform(solver, D[1], x₀)
         scenario = sample(Ξ)
         dual_trajectory = cupps_pass!(solver, hdm, models, scenario, p₀, D)
         primal_trajectory = backward_pass!(solver, hdm, models, dual_trajectory, D)
-        lb, p₀ = fenchel_transform(solver, D[1], x₀)
+        ub, p₀ = fenchel_transform(solver, D[1], x₀)
         if (verbose > 0) && (mod(i, verbose) == 0)
-            @printf(" %4i %15.6e\n", i, lb)
+            @printf(" %4i %15.6e\n", i, ub)
         end
     end
+
+    if verbose > 0
+        @printf(" %4s %15s\n\n", "-"^4, "-"^15)
+        @printf("Number of iterations.........: %7i\n", n_iter)
+        @printf("Total wall-clock time (sec)..: %7.3f\n\n", time() - tic)
+        @printf("Upper-bound.....: %15.8e\n", ub)
+    end
+
     return models
 end
 
@@ -166,6 +193,7 @@ function dualsddp(
     D = [PolyhedralFunction(nx, lower_bound) for t in 1:T]
     dual_sddp = DualSDDP(optimizer, valid_statuses, lip_lb, lip_ub)
     dual_models = solve!(dual_sddp, hdm, D, x₀; n_iter=n_iter, verbose=verbose)
-    return (D, dual_models)
+    ub, _ = fenchel_transform(dual_sddp, D[1], x₀)
+    return (cuts=D, models=dual_models, upper_bound=ub)
 end
 
