@@ -11,20 +11,43 @@ end
 
 introduce(::RegularizedPrimalSDDP) = "Regularized Primal SDDP"
 
+# function initialize!(::SDDP, model::JuMP.Model, Vₜ₊₁::PolyhedralFunction)
+#     @variable(model, θ)
+#     for (λ, γ) in eachcut(Vₜ₊₁)
+#         @constraint(model, θ >= λ' * model[_CURRENT_STATE] + γ)
+#     end
+#     obj_expr = objective_function(model)
+#     @objective(model, Min, obj_expr + θ)
+#     return
+# end
+
 # Should change later: currently it re adds a ρ variable everytime 
-function solve_stage_problem!(sddp::SDDP, model::JuMP.Model, xₜ::Vector{Float64}, ξₜ₊₁::Vector{Float64}, ℓ::Float64, τ::Float64)
+function solve_stage_problem!(sddp::SDDP, model::JuMP.Model, xₜ::Vector{Float64}, ξₜ₊₁::Vector{Float64}, ℓ::Float64, τ::Float64, t, T)
     fix.(model[_PREVIOUS_STATE], xₜ, force=true)
     fix.(model[_UNCERTAINTIES], ξₜ₊₁, force=true)
-    cost_plus_theta = objective_function(model)
+    cost_fct = stage_cost(sddp, model, t, T)
     @variable(model, ρ)
-    @objective(model, Min, ρ + (1 / (2 * τ)) * sum(vcat(model[_CURRENT_STATE], model[_CURRENT_CONTROL]) .^ 2))
-    @constraint(model, cost_plus_theta <= ρ)
     @constraint(model, ℓ <= ρ)
+    if t == T  # TO CHANGE: THIS CONSTRAINT GETS ADDED EVERY ITERATION
+        @constraint(model, cost_fct <= ρ)
+    else
+        @constraint(model, cost_fct + model[_VALUE_FUNCTION] <= ρ)
+    end
+    @objective(model, Min, ρ + (1 / (2 * τ)) * sum(vcat(model[_CURRENT_STATE], model[_CURRENT_CONTROL]) .^ 2))
+    println(model)
     optimize!(model)
     if termination_status(model) ∉ sddp.valid_statuses
         error("[SDDP] Fail to solve primal regularized subproblem: solver's return status is $(termination_status(model))")
     end
     return
+end
+
+function stage_cost(sddp::SDDP, model::JuMP.Model, t, T)
+    if t == T
+        return objective_function(model)
+    else
+        return objective_function(model) - model[_VALUE_FUNCTION]
+    end
 end
 
 function lowerbound(
@@ -77,14 +100,16 @@ function next!(
     ξ::DiscreteRandomVariable{Float64},
     ξₜ₊₁::Vector{Float64},
     τ::Float64,
+    t,
+    T,
 )
     lb = lowerbound(Regsddp.primal_sddp, primal_model, xₜ, ξₜ₊₁)
     #ub = upperbound(sddp, copy(dual_model), xₜ, ξₜ₊₁)
-    ub = 0.8*lb   # To test if we get the same iterates as SDDP in that case
+    ub = 0.8 * lb   # To test if we get the same iterates as SDDP in that case
     ℓ = Regsddp.mixing * lb + (1 - Regsddp.mixing) * ub
-    tmp = copy(primal_model) #### Costly ? Should change. Maybe make a third sequence of models.
+    tmp = copy(primal_model) #### Should change. Maybe make a third sequence of models.
     JuMP.set_optimizer(tmp, Regsddp.primal_sddp.optimizer)
-    solve_stage_problem!(Regsddp.primal_sddp, tmp, xₜ, ξₜ₊₁, ℓ, τ)
+    solve_stage_problem!(Regsddp.primal_sddp, tmp, xₜ, ξₜ₊₁, ℓ, τ, t, T)
     return value.(tmp[_CURRENT_STATE])
 end
 
@@ -102,7 +127,7 @@ function reg_forward_pass!(
     xₜ = copy(initial_state)
     trajectory[:, 1] .= xₜ
     for (t, ξₜ₊₁) in enumerate(eachcol(uncertainty_scenario))
-        xₜ = next!(Regsddp, primal_models[t], dual_models[t], xₜ, Ξ[t], collect(ξₜ₊₁), τ)
+        xₜ = next!(Regsddp, primal_models[t], dual_models[t], xₜ, Ξ[t], collect(ξₜ₊₁), τ, t, horizon(hdm))
         trajectory[:, t+1] .= xₜ
     end
     return trajectory
@@ -121,6 +146,7 @@ function reg_forward_pass(
     primal_trajectory = fill(0.0, length(initial_state), horizon + 1)
     return reg_forward_pass!(Regsddp, hdm, primal_models, dual_models, uncertainty_scenario, initial_state, primal_trajectory, τ)
 end
+
 
 
 function solve!(
