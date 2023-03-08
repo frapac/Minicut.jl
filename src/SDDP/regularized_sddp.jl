@@ -11,37 +11,28 @@ end
 
 introduce(::RegularizedPrimalSDDP) = "Regularized Primal SDDP"
 
-# function initialize!(::SDDP, model::JuMP.Model, Vₜ₊₁::PolyhedralFunction)
-#     @variable(model, θ)
-#     for (λ, γ) in eachcut(Vₜ₊₁)
-#         @constraint(model, θ >= λ' * model[_CURRENT_STATE] + γ)
-#     end
-#     obj_expr = objective_function(model)
-#     @objective(model, Min, obj_expr + θ)
-#     return
-# end
-
 # Should change later: currently it re adds a ρ variable everytime
 function solve_stage_problem!(sddp::SDDP, model::JuMP.Model, V::Vector{PolyhedralFunction}, xₜ::Vector{Float64}, ξₜ₊₁::Vector{Float64}, ℓ::Float64, τ::Float64, t, T)
     fix.(model[_PREVIOUS_STATE], xₜ, force=true)
     fix.(model[_UNCERTAINTIES], ξₜ₊₁, force=true)
     cost = JuMP.objective_function(model)
 
-    @variable(model, θ)
-    if 0 < t < T
+    if t < T
+        @variable(model, θ)
         for (λ, γ) in eachcut(V[t+1])
-            @constraint(model, θ >= λ' * model[_CURRENT_STATE] + γ + cost)
+            @constraint(model, θ >= λ' * model[_CURRENT_STATE] + γ)
         end
+        @constraint(model, θ + cost >= ℓ)
+        @objective(model, Min, θ + cost + (1 / (2 * τ)) * sum(vcat(model[_CURRENT_STATE], model[_CURRENT_CONTROL]) .^ 2))
     else
-        @constraint(model, θ >= cost)
+        @objective(model, Min, cost)
     end
-    @constraint(model, ℓ <= θ)
 
-    @objective(model, Min, θ + (1 / (2 * τ)) * sum(vcat(model[_CURRENT_STATE], model[_CURRENT_CONTROL]) .^ 2))
     optimize!(model)
     if termination_status(model) ∉ sddp.valid_statuses
         error("[SDDP] Fail to solve primal regularized subproblem: solver's return status is $(termination_status(model))")
     end
+    res = JuMP.objective_value(model)
     return
 end
 
@@ -70,30 +61,32 @@ function upperbound(
     ξₜ₊₁::Vector{Float64},
     D::PolyhedralFunction,
 )
+    fix.(model[_PREVIOUS_STATE], xₜ, force=true)
+    fix.(model[_UNCERTAINTIES], ξₜ₊₁, force=true)
+    JuMP.set_optimizer(model, dual_sddp.optimizer)
     # future states
-    xf = model[:xₜ₊₁]
+    xf = model[_CURRENT_STATE]
     # number of cuts
-    n_cuts = V.ncuts()
+    n_cuts = ncuts(D)
     # Lipschitz constant
-    lipschitz = V.lipschitz_constant()
+    lipschitz = dual_sddp.lipschitz_ub
 
     # define simplex Λ
     @variable(model, eta[1:n_cuts] >= 0.0)
-    @variable(model, no1[1:size(xf)[1]])
+    @variable(model, xabs[1:size(xf)[1]])
     @variable(model, x_alt[1:size(xf)[1]])
-    @constraint(model, sum(eta) == 1.0)
 
+    @constraint(model, sum(eta) == 1.0)
     # we build the inner approximation all in once
-    @constraint(model, no1 .>= xf - x_alt) #norm1
-    @constraint(model, no1 .>= x_alt - xf)
-    @constraint(model, x_alt .== sum(eta[i] * D.λ[i, :] for i in 1:n_cuts))
+    @constraint(model, xabs .>= xf - x_alt) #norm1
+    @constraint(model, xabs .>= x_alt - xf)
+    @constraint(model, x_alt .== sum(eta[i] * D.λ[i, :] for i in 1:ncuts(D)))
 
     cost_fct = objective_function(model)
-    @objective(model, Min, cost_fct - sum(eta[i] * D.γ[i] for i in 1:n_cuts) + lipschitz * sum(no1))
+    @objective(model, Min, cost_fct - sum(eta[i] * D.γ[i] for i in 1:n_cuts) + lipschitz * sum(xabs))
     optimize!(model)
     return objective_value(model)
 end
-
 
 function next!(
     Regsddp::RegularizedPrimalSDDP,
@@ -117,6 +110,7 @@ function reg_forward_pass!(
     primal_models::Vector{JuMP.Model},
     dual_models::Vector{JuMP.Model},
     V::Vector{PolyhedralFunction},
+    D::Vector{PolyhedralFunction},
     uncertainty_scenario::Array{Float64,2},
     initial_state::Vector{Float64},
     trajectory::Array{Float64,2},
@@ -127,9 +121,22 @@ function reg_forward_pass!(
     trajectory[:, 1] .= xₜ
     for (t, ξₜ₊₁) in enumerate(eachcol(uncertainty_scenario))
         xi = collect(ξₜ₊₁)
+        # Lower-bound.
         lb = lowerbound(Regsddp.primal_sddp, primal_models[t], xₜ, xi)
+
+        # Upper-bound.
+        ubmodel = stage_model(hdm, t)
+        if t < horizon(hdm)
+            ub = upperbound(Regsddp.dual_sddp, ubmodel, xₜ, xi, D[t+1])
+        else
+            ub = lb
+        end
+        # Regularization level.
+        ℓ = Regsddp.mixing * lb + (1.0 - Regsddp.mixing) * ub
+
         model = stage_model(hdm, t)
-        xₜ = next!(Regsddp, model, V, xₜ, xi, lb, τ, t, horizon(hdm))
+        xₜ = next!(Regsddp, model, V, xₜ, xi, ℓ, τ, t, horizon(hdm))
+
         trajectory[:, t+1] .= xₜ
     end
     return trajectory
@@ -141,13 +148,14 @@ function reg_forward_pass(
     primal_models::Vector{JuMP.Model},
     dual_models::Vector{JuMP.Model},
     V::Vector{PolyhedralFunction},
+    D::Vector{PolyhedralFunction},
     uncertainty_scenario::Array{Float64,2},
     initial_state::Vector{Float64},
     τ::Float64
 )
     horizon = size(uncertainty_scenario, 2)
     primal_trajectory = fill(0.0, length(initial_state), horizon + 1)
-    return reg_forward_pass!(Regsddp, hdm, primal_models, dual_models, V, uncertainty_scenario, initial_state, primal_trajectory, τ)
+    return reg_forward_pass!(Regsddp, hdm, primal_models, dual_models, V, D, uncertainty_scenario, initial_state, primal_trajectory, τ)
 end
 
 function solve!(
@@ -184,7 +192,7 @@ function solve!(
     for i in 1:n_iter
         scenario = sample(Ξ)
         # Primal
-        primal_trajectory = reg_forward_pass(solver, hdm, primal_models, dual_models, V, scenario, x₀, τ)
+        primal_trajectory = reg_forward_pass(solver, hdm, primal_models, dual_models, V, D, scenario, x₀, τ)
         backward_pass!(solver.primal_sddp, hdm, primal_models, primal_trajectory, V)
         # Dual
         dual_trajectory = forward_pass(solver.dual_sddp, hdm, dual_models, scenario, p₀)
@@ -217,7 +225,7 @@ function regularizedsddp(
     hdm::HazardDecisionModel,
     x₀::Array,
     optimizer;
-    mixing=0.2,
+    mixing=1.0,
     τ=1e8,
     seed=0,
     n_iter=500,
