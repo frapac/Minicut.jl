@@ -30,35 +30,38 @@ end
 
 function ContinentalData()
     monthly_ratio = 30 * 24
-    A = monthly_ratio*Float64[
-        0 0 2 1 0 0 0 0;
-        0 0 1 0 0 1 0 0;
-        2 1 0 3 1 0 2 1;
-        1 0 3 0 0 0 1 0;
-        0 0 1 0 0 0 1 0;
-        0 1 0 0 0 0 0 0;
-        0 0 2 1 1 0 0 0;
-        0 0 1 0 0 0 0 0
-    ]
+    A =
+        monthly_ratio * Float64[
+            0 0 2 1 0 0 0 0
+            0 0 1 0 0 1 0 0
+            2 1 0 3 1 0 2 1
+            1 0 3 0 0 0 1 0
+            0 0 1 0 0 0 1 0
+            0 1 0 0 0 0 0 0
+            0 0 2 1 1 0 0 0
+            0 0 1 0 0 0 0 0
+        ]
     return ContinentalData(
         [:BEL, :ESP, :FRA, :GER, :ITA, :PT, :SUI, :UK],
         A,
-        1000.0*Float64[0, 0, 0,   0, 0, 0,   0,   0],
-        1000.0*Float64[0, 8, 10,  4, 4, 2,   10,  2],
-        1000.0*Float64[0, 6, 7.5, 3, 3, 1.5, 7.5, 1.5],
-        monthly_ratio .* Float64[0, 9, 12,  3, 10.5, 1.5, 12,  1.5],
+        1000.0 * Float64[0, 0, 0, 0, 0, 0, 0, 0],
+        1000.0 * Float64[0, 8, 10, 4, 4, 2, 10, 2],
+        1000.0 * Float64[0, 6, 7.5, 3, 3, 1.5, 7.5, 1.5],
+        monthly_ratio .* Float64[0, 9, 12, 3, 10.5, 1.5, 12, 1.5],
         monthly_ratio .* Float64[40, 40, 100, 100, 40, 20, 20, 60],
         Float64[
-            10 40 70 90;
-            10 40 70 90;
-            5  15 30 45;
-            10 25 35 50;
-            10 40 70 90;
-            20 100 100 100;
-            20 100 100 100;
+            10 40 70 90
+            10 40 70 90
+            5 15 30 45
+            10 25 35 50
+            10 40 70 90
+            20 100 100 100
+            20 100 100 100
             20 40 60 80
         ],
-        1.0, 3000.0, 3000.0,
+        1.0,
+        3000.0,
+        3000.0,
     )
 end
 
@@ -107,9 +110,7 @@ struct ContinentalModel <: HazardDecisionModel
     uncertainties::Vector{Minicut.DiscreteRandomVariable{Float64}}
 end
 
-function ContinentalModel(
-    T; names=[:FRA, :GER, :ESP, :PT, :ITA, :SUI, :UK, :BEL], nscenarios=10,
-)
+function ContinentalModel(T; names = [:FRA, :GER, :ESP, :PT, :ITA, :SUI, :UK, :BEL], nscenarios = 10)
     nzones = length(names)
     # Raw data
     data = ContinentalData()
@@ -124,7 +125,7 @@ function ContinentalModel(
     for ix in 1:(nzones-1), iy in (ix+1):nzones
         if C[ix, iy] > 0
             ic += 1
-            A[ix, ic] =  1
+            A[ix, ic] = 1
             A[iy, ic] = -1
             push!(qmax, C[ix, iy])
         end
@@ -136,7 +137,9 @@ function ContinentalModel(
     uncertainties = import_scenarios(names, T, nscenarios)
 
     return ContinentalModel(
-        T, nzones, nedges,
+        T,
+        nzones,
+        nedges,
         A,
         data.x0[position],
         data.xmax[position],
@@ -162,13 +165,13 @@ function Minicut.stage_model(cm::ContinentalModel, t::Int)
 
     m = Model()
 
-    @variable(m, 0.0 <= dams[i=1:nz] <= cm.xmax[i])
-    @variable(m, 0.0 <= damsf[i=1:nz] <= cm.xmax[i])
-    @variable(m, 0.0 <= uturb[i=1:nz] <= cm.uturb_max[i])
+    @variable(m, 0.0 <= dams[i = 1:nz] <= cm.xmax[i])
+    @variable(m, 0.0 <= damsf[i = 1:nz] <= cm.xmax[i])
+    @variable(m, 0.0 <= uturb[i = 1:nz] <= cm.uturb_max[i])
     @variable(m, 0.0 <= uspill[1:nz] <= 10000.0)
-    @variable(m, 0.0 <= utherm[i=1:nz] <= cm.utherm_max[i])
+    @variable(m, 0.0 <= utherm[i = 1:nz] <= cm.utherm_max[i])
     @variable(m, 0.0 <= urecourse[1:nz] <= 10000.0)
-    @variable(m, -cm.qmax[i] <= flows[i=1:na] <= cm.qmax[i])
+    @variable(m, -cm.qmax[i] <= flows[i = 1:na] <= cm.qmax[i])
 
     @variable(m, inflows[1:nz])
     @variable(m, demands[1:nz])
@@ -200,15 +203,21 @@ function Minicut.stage_model(cm::ContinentalModel, t::Int)
     @expression(m, x₋, dams)
     @expression(m, u, [uturb; uspill; utherm; urecourse; flows])
     @expression(m, x, damsf)
-    @expression(m, ξ, [inflows ; demands])
+    @expression(m, ξ, [inflows; demands])
 
     return m
 end
 
-function continental(; names=[:FRA, :GER, :ESP, :PT, :ITA, :SUI, :UK, :BEL], T=12, max_iter=500, nscenarios=10, nsimus=1000)
+function continental(;
+    names = [:FRA, :GER, :ESP, :PT, :ITA, :SUI, :UK, :BEL],
+    T = 12,
+    max_iter = 500,
+    nscenarios = 10,
+    nsimus = 1000,
+)
     Random.seed!(2713)
 
-    cm = ContinentalModel(T; names=names, nscenarios=nscenarios)
+    cm = ContinentalModel(T; names = names, nscenarios = nscenarios)
     nx = Minicut.number_states(cm)
     x0 = cm.x0
 
@@ -217,11 +226,9 @@ function continental(; names=[:FRA, :GER, :ESP, :PT, :ITA, :SUI, :UK, :BEL], T=1
     V = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T]
 
     # Solve with SDDP
-    optimizer = JuMP.optimizer_with_attributes(
-        HiGHS.Optimizer, "output_flag" => false,
-    )
+    optimizer = JuMP.optimizer_with_attributes(HiGHS.Optimizer, "output_flag" => false)
     solver = Minicut.SDDP(optimizer)
-    models = Minicut.solve!(solver, cm, V, x0; n_iter=max_iter, verbose=10)
+    models = Minicut.solve!(solver, cm, V, x0; n_iter = max_iter, verbose = 10)
 
     # Simulation
     scenarios = Minicut.sample(Minicut.uncertainties(cm), nsimus)
@@ -232,4 +239,3 @@ function continental(; names=[:FRA, :GER, :ESP, :PT, :ITA, :SUI, :UK, :BEL], T=1
     println("Final statistical gap: ", abs(ub - lb) / abs(ub))
     return
 end
-

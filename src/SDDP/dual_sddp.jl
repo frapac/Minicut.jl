@@ -9,7 +9,7 @@ struct DualSDDP <: AbstractSDDP
     lipschitz_ub::Float64
 end
 
-DualSDDP(optimizer; lip_lb=-1e10, lip_ub=1e10) = DualSDDP(optimizer, [MOI.OPTIMAL], lip_lb, lip_ub)
+DualSDDP(optimizer; lip_lb = -1e10, lip_ub = 1e10) = DualSDDP(optimizer, [MOI.OPTIMAL], lip_lb, lip_ub)
 
 introduce(::DualSDDP) = "Dual SDDP"
 
@@ -20,7 +20,7 @@ introduce(::DualSDDP) = "Dual SDDP"
 function _next_costate_reference(model::JuMP.Model, k::Int)
     nx = length(model[_PREVIOUS_COSTATE])
     costates = model[_CURRENT_COSTATE]
-    f, t = (k-1) * nx + 1, k * nx
+    f, t = (k - 1) * nx + 1, k * nx
     return costates[f:t]
 end
 
@@ -134,7 +134,7 @@ function solve!(
     hdm::HazardDecisionModel,
     D::Array{PolyhedralFunction},
     x₀::Array;
-    n_iter=100,
+    n_iter = 100,
     verbose::Int = 1,
 )
     (verbose > 0) && header()
@@ -180,20 +180,19 @@ function dualsddp(
     hdm::HazardDecisionModel,
     x₀::Array,
     optimizer;
-    seed=0,
-    n_iter=500,
+    seed = 0,
+    n_iter = 500,
     verbose::Int = 1,
-    lower_bound=-1e6,
-    lip_ub=+1e10,
-    lip_lb=-1e10,
-    valid_statuses=[MOI.OPTIMAL],
+    lower_bound = -1e6,
+    lip_ub = +1e10,
+    lip_lb = -1e10,
+    valid_statuses = [MOI.OPTIMAL],
 )
     (seed >= 0) && Random.seed!(seed)
     nx, T = number_states(hdm), horizon(hdm)
     D = [PolyhedralFunction(nx, lower_bound) for t in 1:T]
     dual_sddp = DualSDDP(optimizer, valid_statuses, lip_lb, lip_ub)
-    dual_models = solve!(dual_sddp, hdm, D, x₀; n_iter=n_iter, verbose=verbose)
+    dual_models = solve!(dual_sddp, hdm, D, x₀; n_iter = n_iter, verbose = verbose)
     ub, _ = fenchel_transform(dual_sddp, D[1], x₀)
-    return (cuts=D, models=dual_models, upper_bound=ub)
+    return (cuts = D, models = dual_models, upper_bound = ub)
 end
-

@@ -16,18 +16,13 @@
 
 =#
 
-_get_rhs(set::MOI.LessThan{T}) where T = set.upper
-_get_rhs(set::MOI.GreaterThan{T}) where T = set.lower
-_get_rhs(set::MOI.EqualTo{T}) where T = set.value
+_get_rhs(set::MOI.LessThan{T}) where {T} = set.upper
+_get_rhs(set::MOI.GreaterThan{T}) where {T} = set.lower
+_get_rhs(set::MOI.EqualTo{T}) where {T} = set.value
 
-function _get_extensive_stage_problem(
-    model::JuMP.Model, ξ::DiscreteRandomVariable{Float64},
-)
+function _get_extensive_stage_problem(model::JuMP.Model, ξ::DiscreteRandomVariable{Float64})
     # Extensive model
-    dest = MOIU.CachingOptimizer(
-        MOIU.UniversalFallback(MOIU.Model{Float64}()),
-        MOIU.AUTOMATIC,
-    )
+    dest = MOIU.CachingOptimizer(MOIU.UniversalFallback(MOIU.Model{Float64}()), MOIU.AUTOMATIC)
     nξ = length(ξ)
 
     # Get MOI representation
@@ -81,7 +76,7 @@ function _get_extensive_stage_problem(
         # Rewrite bound constraints as generic constraints
         # and scale them by probability weights.
         for S in [MOI.LessThan{Float64}, MOI.GreaterThan{Float64}, MOI.EqualTo{Float64}]
-            for con in MOI.get(src, MOI.ListOfConstraintIndices{MOI.VariableIndex, S}())
+            for con in MOI.get(src, MOI.ListOfConstraintIndices{MOI.VariableIndex,S}())
                 idx = MOI.get(src, MOI.ConstraintFunction(), con)
                 set = MOI.get(src, MOI.ConstraintSet(), con)
                 if idx in index_edges
@@ -130,15 +125,10 @@ function _get_extensive_stage_problem(
                     id_coupling += 1
                     "coupling_$(k)_$(id_coupling)"
                 else
-                    id_operational +=1
+                    id_operational += 1
                     "op_$(k)_$(id_operational)"
                 end
-                MOI.set(
-                    dest,
-                    MOI.ConstraintName(),
-                    con,
-                    name,
-                )
+                MOI.set(dest, MOI.ConstraintName(), con, name)
             end
         end
         # Adapt objective
@@ -160,7 +150,7 @@ end
 function _build_dual_model(primal_model, index_x, index_xf, ξ, lip_lb, lip_ub)
     nx = length(index_x)
     nw = length(ξ)
-    dual = Dualization.dualize(primal_model; dual_names=DualNames("", ""))
+    dual = Dualization.dualize(primal_model; dual_names = DualNames("", ""))
     # Add adjoint variable μₜ
     index_mu = MOI.VariableIndex[]
     for (i, xi) in enumerate(index_x)
@@ -168,11 +158,7 @@ function _build_dual_model(primal_model, index_x, index_xf, ξ, lip_lb, lip_ub)
         vi = MOI.add_variable(dual.dual_model)
         MOI.set(dual.dual_model, MOI.VariableName(), vi, "μ$i")
         # TODO: check sign
-        MOI.modify(
-            dual.dual_model,
-            con,
-            MOI.ScalarCoefficientChange(vi, 1.0),
-        )
+        MOI.modify(dual.dual_model, con, MOI.ScalarCoefficientChange(vi, 1.0))
         push!(index_mu, vi)
     end
 
@@ -191,11 +177,7 @@ function _build_dual_model(primal_model, index_x, index_xf, ξ, lip_lb, lip_ub)
         # Modify coupling constraints
         con = dual.primal_dual_map.primal_var_dual_con[xf]
         # TODO: check sign
-        MOI.modify(
-            dual.dual_model,
-            con,
-            MOI.ScalarCoefficientChange(vi, -w),
-        )
+        MOI.modify(dual.dual_model, con, MOI.ScalarCoefficientChange(vi, -w))
 
         idx += 1
     end
@@ -203,9 +185,7 @@ function _build_dual_model(primal_model, index_x, index_xf, ξ, lip_lb, lip_ub)
     return dual, index_mu, index_mu_next
 end
 
-function dual_stage_model(
-    hd::HazardDecisionModel, t::Int, lip_lb::Float64, lip_ub::Float64,
-)
+function dual_stage_model(hd::HazardDecisionModel, t::Int, lip_lb::Float64, lip_ub::Float64)
     Ξ = uncertainties(hd)
     model = stage_model(hd, t)
 
@@ -223,4 +203,3 @@ function dual_stage_model(
 
     return dual_model
 end
-

@@ -1,6 +1,6 @@
 mutable struct PolyhedralFunction
-    λ::Array{Float64, 2}
-    γ::Array{Float64, 1}
+    λ::Array{Float64,2}
+    γ::Array{Float64,1}
 end
 
 ncuts(V::PolyhedralFunction) = size(V.λ, 1)
@@ -45,4 +45,3 @@ function remove_cut(V::PolyhedralFunction, cut_index::Int)
     to_keep = (1:cut_index-1) ∪ (cut_index+1:ncuts(V))
     return PolyhedralFunction(V.λ[to_keep, :], V.γ[to_keep])
 end
-

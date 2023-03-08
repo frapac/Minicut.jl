@@ -11,4 +11,3 @@ include("sddp.jl")
 include("dualization.jl")
 include("dual_sddp.jl")
 include("interface.jl")
-

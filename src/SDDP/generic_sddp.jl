@@ -13,9 +13,9 @@ function forward_pass!(
     sddp::AbstractSDDP,
     hdm::HazardDecisionModel,
     models::Vector{JuMP.Model},
-    uncertainty_scenario::Array{Float64, 2},
+    uncertainty_scenario::Array{Float64,2},
     initial_state::Vector{Float64},
-    trajectory::Array{Float64, 2},
+    trajectory::Array{Float64,2},
 )
     Ξ = uncertainties(hdm)
     xₜ = copy(initial_state)
@@ -31,7 +31,7 @@ function forward_pass(
     sddp::AbstractSDDP,
     hdm::HazardDecisionModel,
     models::Vector{JuMP.Model},
-    uncertainty_scenario::Array{Float64, 2},
+    uncertainty_scenario::Array{Float64,2},
     initial_state::Vector{Float64},
 )
     horizon = size(uncertainty_scenario, 2)
@@ -72,7 +72,7 @@ function cupps_pass!(
     sddp::AbstractSDDP,
     hdm::HazardDecisionModel,
     models::Vector{JuMP.Model},
-    uncertainty_scenario::Array{Float64, 2},
+    uncertainty_scenario::Array{Float64,2},
     initial_state::Vector{Float64},
     V::Vector{PolyhedralFunction},
 )
@@ -101,7 +101,7 @@ function simulate!(
     hdm::HazardDecisionModel,
     models::Vector{JuMP.Model},
     initial_state::Vector{Float64},
-    uncertainty_scenario::Vector{Array{Float64, 2}},
+    uncertainty_scenario::Vector{Array{Float64,2}},
 )
     Ξ = uncertainties(hdm)
     n_scenarios = length(uncertainty_scenario)
@@ -124,11 +124,11 @@ function sample_trajectory!(
     hdm::HazardDecisionModel,
     models::Vector{JuMP.Model},
     initial_state::Vector{Float64},
-    uncertainty_scenario::Vector{Array{Float64, 2}},
+    uncertainty_scenario::Vector{Array{Float64,2}},
 )
     Ξ = uncertainties(hdm)
     n_states, n_scenarios = number_states(hdm), length(uncertainty_scenario)
-    trajectory = zeros(n_scenarios, horizon(hdm)+1, n_states)
+    trajectory = zeros(n_scenarios, horizon(hdm) + 1, n_states)
     for k in 1:n_scenarios
         trajectory[k, 1, :] .= initial_state
     end
@@ -141,4 +141,3 @@ function sample_trajectory!(
     end
     return trajectory
 end
-

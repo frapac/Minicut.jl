@@ -12,7 +12,7 @@ using Minicut
 DATA_FOLDER = joinpath(@__DIR__, "data")
 
 function import_raw_data(name)
-    return readdlm(joinpath(DATA_FOLDER, name), ',', header=true)[1][:, 2:end] .|> Float64
+    return readdlm(joinpath(DATA_FOLDER, name), ',', header = true)[1][:, 2:end] .|> Float64
 end
 
 struct BrazilianHydroData
@@ -64,7 +64,7 @@ function import_scenarios(nstages, nscenarios, inflow_initial)
     return uncertainties
 end
 
-function BrazilianHydroModel(; T=12, nscen=10)
+function BrazilianHydroModel(; T = 12, nscen = 10)
     data = BrazilianHydroData()
     inflow_initial = data.hydro[5:8, 2]
     return BrazilianHydroModel(
@@ -84,27 +84,27 @@ Minicut.name(bhm::BrazilianHydroModel) = "Brazilian hydro-thermal generation pro
 
 function Minicut.stage_model(bm::BrazilianHydroModel, t::Int)
     discount = 0.9906
-    β = discount^(t-1)
+    β = discount^(t - 1)
     cost_spill = 1e-3
-    demand = data.demand[(t-1) % 12 + 1, :]
+    demand = data.demand[(t-1)%12+1, :]
     exch_costs = bm.data.exchange_costs
     m = Model()
 
-    @variable(m, 0.0 <= dams[i=1:4] <= bm.xmax[i])
-    @variable(m, 0.0 <= damsf[i=1:4] <= bm.xmax[i])
-    @variable(m, 0.0 <= uturb[i=1:4] <= bm.uturb_max[i])
-    @variable(m, 0.0 <= uspill[i=1:4] <= 100000)
+    @variable(m, 0.0 <= dams[i = 1:4] <= bm.xmax[i])
+    @variable(m, 0.0 <= damsf[i = 1:4] <= bm.xmax[i])
+    @variable(m, 0.0 <= uturb[i = 1:4] <= bm.uturb_max[i])
+    @variable(m, 0.0 <= uspill[i = 1:4] <= 100000)
 
-    @variable(m, 0.0 <= deficit[i=1:4, j=1:4] <= demand[i] * bm.data.deficit[j, 2])
-    @variable(m, 0.0 <= exch[i=1:5, j=1:5] <= bm.data.exchange_ub[i, j])
+    @variable(m, 0.0 <= deficit[i = 1:4, j = 1:4] <= demand[i] * bm.data.deficit[j, 2])
+    @variable(m, 0.0 <= exch[i = 1:5, j = 1:5] <= bm.data.exchange_ub[i, j])
 
-    @variable(m, inflows[i=1:4])
+    @variable(m, inflows[i = 1:4])
 
     utherm = Dict{Int,Array{VariableRef,1}}()
     for k in 1:4
         therm = bm.data.thermals[k]
         nth = size(therm, 1)
-        utherm[k] = @variable(m, [i=1:nth], lower_bound=therm[i, 1], upper_bound=therm[i, 2])
+        utherm[k] = @variable(m, [i = 1:nth], lower_bound = therm[i, 1], upper_bound = therm[i, 2])
     end
 
     # Dynamics
@@ -114,38 +114,38 @@ function Minicut.stage_model(bm::BrazilianHydroModel, t::Int)
 
     # Exchange
     for k in 1:4
-        @constraint(m,
-            sum(utherm[k])
-            + sum(deficit[k, j] for j in 1:4)
-            + uturb[k]
-            - sum(exch[k, j] for j in 1:4)
-            + sum((1.0 - exch_costs[j, k]) * exch[j, k] for j in 1:4) == demand[k]
+        @constraint(
+            m,
+            sum(utherm[k]) + sum(deficit[k, j] for j in 1:4) + uturb[k] - sum(exch[k, j] for j in 1:4) +
+            sum((1.0 - exch_costs[j, k]) * exch[j, k] for j in 1:4) == demand[k]
         )
     end
     ## At residual node
     @constraint(m, sum(exch[j, 5] for j in 1:5) == sum(exch[5, j] for j in 1:5))
 
     # Objective
-    @objective(m, Min,
+    @objective(
+        m,
+        Min,
         β * (
             cost_spill * sum(uspill) +
-            sum(dot(bm.data.thermals[k][:, 3], utherm[k]) for k in 1:4)
-            + sum(bm.data.deficit[j, 1] * deficit[i, j] for i in 1:4, j in 1:4)
+            sum(dot(bm.data.thermals[k][:, 3], utherm[k]) for k in 1:4) +
+            sum(bm.data.deficit[j, 1] * deficit[i, j] for i in 1:4, j in 1:4)
         )
     )
 
     @expression(m, x₋, dams)
     @expression(m, x, damsf)
-    @expression(m, u, [uturb; uspill; utherm[1] ; utherm[2] ; utherm[3] ; utherm[4]; deficit[:]; exch[:]])
+    @expression(m, u, [uturb; uspill; utherm[1]; utherm[2]; utherm[3]; utherm[4]; deficit[:]; exch[:]])
     @expression(m, ξ, inflows)
 
     return m
 end
 
-function brazilian(; T=12, max_iter=500, nscenarios=10, nsimus=1000)
+function brazilian(; T = 12, max_iter = 500, nscenarios = 10, nsimus = 1000)
     Random.seed!(2713)
 
-    bhm = BrazilianHydroModel(; T=T, nscen=nscenarios)
+    bhm = BrazilianHydroModel(; T = T, nscen = nscenarios)
     nx = Minicut.number_states(bhm)
     x0 = bhm.x0
 
@@ -154,11 +154,9 @@ function brazilian(; T=12, max_iter=500, nscenarios=10, nsimus=1000)
     V = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T]
 
     # Solve with SDDP
-    optimizer = JuMP.optimizer_with_attributes(
-        HiGHS.Optimizer, "output_flag" => false,
-    )
+    optimizer = JuMP.optimizer_with_attributes(HiGHS.Optimizer, "output_flag" => false)
     solver = Minicut.SDDP(optimizer, [MOI.OPTIMAL, MOI.OTHER_ERROR])
-    models = Minicut.solve!(solver, bhm, V, x0; n_iter=max_iter, verbose=10)
+    models = Minicut.solve!(solver, bhm, V, x0; n_iter = max_iter, verbose = 10)
 
     # Simulation
     scenarios = Minicut.sample(Minicut.uncertainties(bhm), nsimus)
@@ -169,4 +167,3 @@ function brazilian(; T=12, max_iter=500, nscenarios=10, nsimus=1000)
     println("Final statistical gap: ", abs(ub - lb) / abs(ub))
     return
 end
-
