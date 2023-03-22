@@ -110,7 +110,6 @@ function solve!(
 
     if verbose > 0
         println("Algorithm: ", introduce(solver))
-        println("    Solver:  ", solver.optimizer.optimizer_constructor)
         @printf("\n")
         println(hdm)
         @printf("\n")
