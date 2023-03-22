@@ -50,7 +50,9 @@ function import_scenarios(nstages, nscenarios, inflow_initial)
     scenarios = zeros(nstages, nscenarios, 4)
     for k in 1:4
         _scen = readdlm(joinpath(DATA_FOLDER, "scenario_inflows_$(k-1).txt"))
-        scenarios[2:nstages, :, k] .= _scen[1:nstages-1, 1:nscenarios]
+        for i in 2:nstages
+            scenarios[i, :, k] .= _scen[(i-1) % 11 + 1, 1:nscenarios]
+        end
     end
 
     uncertainties = Minicut.DiscreteRandomVariable{Float64}[]
