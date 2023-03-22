@@ -176,8 +176,6 @@ function solve!(
 
     if verbose > 0
         println("Algorithm: ", introduce(solver))
-        println("    Primal solver....:  ", solver.primal_sddp.optimizer.optimizer_constructor)
-        println("    Dual solver......:  ", solver.dual_sddp.optimizer.optimizer_constructor)
         @printf("\n")
         println(hdm)
         @printf("\n")
