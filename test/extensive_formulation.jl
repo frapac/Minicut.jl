@@ -6,7 +6,7 @@ using Minicut
 
 @testset "Extensive formulation: WaterDamModel" begin
     T = 3
-    wdm = WaterDamModel(T; nbins=2)
+    wdm = WaterDamModel(T; nbins = 2)
     nx = Minicut.number_states(wdm)
     Ξ = Minicut.uncertainties(wdm)
     x0 = [8.0]
@@ -21,13 +21,10 @@ using Minicut
     m = JuMP.Model()
     MOI.copy_to(m, ext.moi_model)
 
-    optimizer = JuMP.optimizer_with_attributes(
-        HiGHS.Optimizer, "output_flag" => false,
-    )
+    optimizer = JuMP.optimizer_with_attributes(HiGHS.Optimizer, "output_flag" => false)
     solver = Minicut.ExtensiveFormulationSolver(optimizer)
 
     model = Minicut.solve!(solver, wdm, x0)
     @test isa(model, JuMP.Model)
     @test MOI.get(model, MOI.TerminationStatus()) == MOI.OPTIMAL
 end
-

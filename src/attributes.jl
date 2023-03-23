@@ -38,12 +38,11 @@ function introduce end
 #=
     Keys
 =#
-const _INITIAL_STATE         = :(x0)
-const _PREVIOUS_STATE        = :(x₋)
-const _CURRENT_STATE         = :(x)
-const _CURRENT_CONTROL       = :(u)
-const _UNCERTAINTIES         = :(ξ)
-const _PREVIOUS_COSTATE      = :(μ₋)
-const _CURRENT_COSTATE       = :(μ)
-const _VALUE_FUNCTION        = :(θ)
-
+const _INITIAL_STATE = :(x0)
+const _PREVIOUS_STATE = :(x₋)
+const _CURRENT_STATE = :(x)
+const _CURRENT_CONTROL = :(u)
+const _UNCERTAINTIES = :(ξ)
+const _PREVIOUS_COSTATE = :(μ₋)
+const _CURRENT_COSTATE = :(μ)
+const _VALUE_FUNCTION = :(θ)

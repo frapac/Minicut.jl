@@ -17,7 +17,7 @@ using Minicut
     @test Minicut.dimension(V) == n
     @test V(x) == dot(x, cut) + slope
     @test size(V.λ) == (1, n)
-    @test size(V.γ) == (1, )
+    @test size(V.γ) == (1,)
 
     # Cut removal
     Vu = unique(V)
@@ -48,7 +48,4 @@ end
     scenario = Minicut.sample(ds)
     @test isa(scenario, Matrix)
     @test size(scenario) == (n, T)
-
-
 end
-

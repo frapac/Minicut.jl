@@ -142,4 +142,3 @@ function sample_trajectory!(
     end
     return trajectory
 end
-

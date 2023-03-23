@@ -15,7 +15,7 @@ function solve!(
     V::Array{PolyhedralFunction},
     D::Array{PolyhedralFunction},
     x₀::Array;
-    n_iter=100,
+    n_iter = 100,
     verbose::Int = 1,
 )
     (verbose > 0) && header()
@@ -72,13 +72,13 @@ function mixedsddp(
     hdm::HazardDecisionModel,
     x₀::Array,
     optimizer;
-    seed=0,
-    n_iter=500,
+    seed = 0,
+    n_iter = 500,
     verbose::Int = 1,
-    lower_bound=-1e6,
-    lip_ub=+1e10,
-    lip_lb=-1e10,
-    valid_statuses=[MOI.OPTIMAL],
+    lower_bound = -1e6,
+    lip_ub = +1e10,
+    lip_lb = -1e10,
+    valid_statuses = [MOI.OPTIMAL],
 )
     (seed >= 0) && Random.seed!(seed)
     nx, T = number_states(hdm), horizon(hdm)
@@ -91,18 +91,17 @@ function mixedsddp(
 
     # Solve
     mixed_sddp = MixedPrimalDualSDDP(primal_sddp, dual_sddp)
-    primal_models, dual_models = solve!(mixed_sddp, hdm, V, D, x₀; n_iter=n_iter, verbose=verbose)
+    primal_models, dual_models = solve!(mixed_sddp, hdm, V, D, x₀; n_iter = n_iter, verbose = verbose)
 
     # Get upper-bound
     ub, _ = fenchel_transform(dual_sddp, D[1], x₀)
 
     return (
-        primal_cuts=V,
-        primal_models=primal_models,
-        lower_bound=V[1](x₀),
-        dual_cuts=D,
-        dual_models=dual_models,
-        upper_bound=ub,
+        primal_cuts = V,
+        primal_models = primal_models,
+        lower_bound = V[1](x₀),
+        dual_cuts = D,
+        dual_models = dual_models,
+        upper_bound = ub,
     )
 end
-

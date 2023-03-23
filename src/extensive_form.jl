@@ -18,7 +18,7 @@ end
 
 struct Node{T}
     # Parent node. Is nothing for root node.
-    parent::Union{Nothing, Node}
+    parent::Union{Nothing,Node}
     # Correspondance map between model at time t and extensive model
     index_map::Dict
     # Index of state variable attached to this node
@@ -51,7 +51,7 @@ function add_children!(
     models::Vector{JuMP.Model},
     Ξ::Vector{DiscreteRandomVariable{T}},
     final_time::Int,
-) where T
+) where {T}
     if parent.t == final_time
         return
     end
@@ -108,7 +108,7 @@ function add_children!(
         end
         # Copy variable bounds
         for S in [MOI.LessThan{T}, MOI.GreaterThan{T}]
-            for con in MOI.get(src, MOI.ListOfConstraintIndices{MOI.VariableIndex, S}())
+            for con in MOI.get(src, MOI.ListOfConstraintIndices{MOI.VariableIndex,S}())
                 idx = MOI.get(src, MOI.ConstraintFunction(), con)
                 set = MOI.get(src, MOI.ConstraintSet(), con)
                 if idx in [index_edges; index_xf]
@@ -150,10 +150,7 @@ function add_children!(
     end
 end
 
-function build_scenario_tree(
-    hm::HazardDecisionModel;
-    max_nodes=1000,
-)
+function build_scenario_tree(hm::HazardDecisionModel; max_nodes = 1000)
     Ξ = Minicut.uncertainties(hm)
     final_time = Minicut.horizon(hm)
     # Test that scenario tree is not too large
@@ -164,10 +161,7 @@ function build_scenario_tree(
     # Scenario tree
     tree = Node{Float64}[]
     # Extensive model
-    dest = MOIU.CachingOptimizer(
-        MOIU.UniversalFallback(MOIU.Model{Float64}()),
-        MOIU.AUTOMATIC,
-    )
+    dest = MOIU.CachingOptimizer(MOIU.UniversalFallback(MOIU.Model{Float64}()), MOIU.AUTOMATIC)
     # Build root node
     nx = Minicut.number_states(hm)
     x0 = MOI.add_variables(dest, nx)
@@ -188,16 +182,11 @@ function build_scenario_tree(
     MOI.set(dest, MOI.ObjectiveFunction{ObjFunc}(), obj_dest)
     MOI.set(dest, MOI.ObjectiveSense(), MOI.MIN_SENSE)
 
-    return (moi_model=dest, scenario_tree=tree)
+    return (moi_model = dest, scenario_tree = tree)
 end
 
-function solve!(
-    ext::ExtensiveFormulationSolver,
-    hm::HazardDecisionModel,
-    x0::Array;
-    max_nodes=5000,
-)
-    extensive = build_scenario_tree(hm; max_nodes=max_nodes)
+function solve!(ext::ExtensiveFormulationSolver, hm::HazardDecisionModel, x0::Array; max_nodes = 5000)
+    extensive = build_scenario_tree(hm; max_nodes = max_nodes)
     # Copy MOI model to a new JuMP model
     model = JuMP.Model()
     idx = MOI.copy_to(model, extensive.moi_model)
@@ -213,18 +202,8 @@ function solve!(
     return model
 end
 
-function extensive(
-    hdm::HazardDecisionModel,
-    x₀::Array,
-    optimizer;
-    max_nodes=5000,
-)
+function extensive(hdm::HazardDecisionModel, x₀::Array, optimizer; max_nodes = 5000)
     extensive_solver = ExtensiveFormulationSolver(optimizer)
-    model = solve!(extensive_solver, hdm, x₀; max_nodes=max_nodes)
-    return (
-        status=JuMP.termination_status(model),
-        optimum=JuMP.objective_value(model),
-        model=model,
-    )
+    model = solve!(extensive_solver, hdm, x₀; max_nodes = max_nodes)
+    return (status = JuMP.termination_status(model), optimum = JuMP.objective_value(model), model = model)
 end
-

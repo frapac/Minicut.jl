@@ -1,9 +1,7 @@
 @testset "Dualization" begin
-    optimizer = JuMP.optimizer_with_attributes(
-        HiGHS.Optimizer, "output_flag" => false,
-    )
+    optimizer = JuMP.optimizer_with_attributes(HiGHS.Optimizer, "output_flag" => false)
     T, nbins = 3, 2
-    wdm = WaterDamModel(T; nbins=nbins)
+    wdm = WaterDamModel(T; nbins = nbins)
     Ξ = Minicut.uncertainties(wdm)
     nx = Minicut.number_states(wdm)
     x0 = [8.0]
@@ -31,7 +29,7 @@
         for k in 1:length(Ξ[t])
             w = Ξ[t].weights[k]
             ξ = Ξ[t].supports[:, k]
-            JuMP.fix.(model[Minicut._PREVIOUS_STATE], x0; force=true)
+            JuMP.fix.(model[Minicut._PREVIOUS_STATE], x0; force = true)
             JuMP.fix.(model[Minicut._UNCERTAINTIES], ξ)
             JuMP.optimize!(model)
             obj_ref += w * JuMP.objective_value(model)
@@ -49,10 +47,10 @@
         obj_primal = JuMP.objective_value(primal_model)
 
         nvar = JuMP.num_variables(primal_model)
-        ncon = JuMP.num_constraints(primal_model; count_variable_in_set_constraints=true)
+        ncon = JuMP.num_constraints(primal_model; count_variable_in_set_constraints = true)
         dual_model = Minicut.dual_stage_model(wdm, t, -Inf, Inf)
         nvar_dual = JuMP.num_variables(dual_model)
-        ncon_dual = JuMP.num_constraints(dual_model; count_variable_in_set_constraints=true)
+        ncon_dual = JuMP.num_constraints(dual_model; count_variable_in_set_constraints = true)
 
         # NB: we have added additional variables to account for
         # the co-states μₜ and μₜ₊₁
@@ -75,4 +73,3 @@
         @test obj_dual == obj_primal
     end
 end
-

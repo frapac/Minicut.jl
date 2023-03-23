@@ -19,12 +19,10 @@ struct DamsValleyModel <: HazardDecisionModel
     inflows::Vector{Minicut.DiscreteRandomVariable{Float64}}
 end
 
-function DamsValleyModel(
-    T::Int; vmax=80.0, umax=40.0, smax=200.0, maxflow=9.0, nbins=10,
-)
+function DamsValleyModel(T::Int; vmax = 80.0, umax = 40.0, smax = 200.0, maxflow = 9.0, nbins = 10)
     weights = ones(nbins) ./ nbins
     inflows = [Minicut.DiscreteRandomVariable(weights, maxflow .* rand(5, nbins)) for t in 1:T]
-    csell = 178.2*(1.0 .+ 0.5*(rand(T) .- 0.5))
+    csell = 178.2 * (1.0 .+ 0.5 * (rand(T) .- 0.5))
     return DamsValleyModel(T, vmax, umax, smax, csell, inflows)
 end
 
@@ -68,11 +66,11 @@ function Minicut.stage_model(dvm::DamsValleyModel, t::Int)
     return m
 end
 
-function damsvalley(; max_iter=500, nbins=10, nsimus=1000)
+function damsvalley(; max_iter = 500, nbins = 10, nsimus = 1000)
     Random.seed!(2713)
     T = 12
 
-    dvm = DamsValleyModel(T; nbins=nbins)
+    dvm = DamsValleyModel(T; nbins = nbins)
     nx = Minicut.number_states(dvm)
     x0 = fill(40.0, nx)
 
@@ -81,11 +79,9 @@ function damsvalley(; max_iter=500, nbins=10, nsimus=1000)
     V = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T]
 
     # Solve with SDDP
-    optimizer = JuMP.optimizer_with_attributes(
-        HiGHS.Optimizer, "output_flag" => false,
-    )
+    optimizer = JuMP.optimizer_with_attributes(HiGHS.Optimizer, "output_flag" => false)
     solver = Minicut.SDDP(optimizer)
-    models = Minicut.solve!(solver, dvm, V, x0; n_iter=max_iter, verbose=10)
+    models = Minicut.solve!(solver, dvm, V, x0; n_iter = max_iter, verbose = 10)
 
     # Simulation
     scenarios = Minicut.sample(Minicut.uncertainties(dvm), nsimus)
@@ -96,4 +92,3 @@ function damsvalley(; max_iter=500, nbins=10, nsimus=1000)
     println("Final statistical gap: ", abs(ub - lb) / abs(ub))
     return
 end
-

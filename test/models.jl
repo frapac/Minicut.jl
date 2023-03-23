@@ -9,11 +9,11 @@ end
 
 function WaterDamModel(
     T;
-    nbins=10,
-    capacity=10.0,
-    umax=5.0,
-    maxflow =3.0,
-    csell=120.0*(1.0 .+ 0.5 .* (rand(T) .- 0.5)),
+    nbins = 10,
+    capacity = 10.0,
+    umax = 5.0,
+    maxflow = 3.0,
+    csell = 120.0 * (1.0 .+ 0.5 .* (rand(T) .- 0.5)),
 )
     # Build uncertainty model
     weights = 1.0 ./ nbins .* ones(nbins)
@@ -45,4 +45,3 @@ function Minicut.stage_model(wdm::WaterDamModel, t::Int)
 
     return m
 end
-

@@ -100,7 +100,7 @@ function solve!(
     hdm::HazardDecisionModel,
     V::Array{PolyhedralFunction},
     x₀::Array;
-    n_iter=100,
+    n_iter = 100,
     verbose::Int = 1,
 )
     (verbose > 0) && header()
@@ -145,17 +145,16 @@ function sddp(
     hdm::HazardDecisionModel,
     x₀::Array,
     optimizer;
-    seed=0,
-    n_iter=500,
+    seed = 0,
+    n_iter = 500,
     verbose::Int = 1,
-    lower_bound=-1e6,
-    valid_statuses=[MOI.OPTIMAL],
+    lower_bound = -1e6,
+    valid_statuses = [MOI.OPTIMAL],
 )
     (seed >= 0) && Random.seed!(seed)
     nx, T = number_states(hdm), horizon(hdm)
     V = [PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T]
     solver = SDDP(optimizer, valid_statuses)
-    models = solve!(solver, hdm, V, x₀; n_iter=n_iter, verbose=verbose)
-    return (cuts=V, models=models, lower_bound=V[1](x₀))
+    models = solve!(solver, hdm, V, x₀; n_iter = n_iter, verbose = verbose)
+    return (cuts = V, models = models, lower_bound = V[1](x₀))
 end
-
