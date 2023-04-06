@@ -131,9 +131,10 @@ function reg_forward_pass!(
         else
             ub = lb
         end
-        # Regularization level.
-        ℓ = Regsddp.mixing * lb + (1.0 - Regsddp.mixing) * ub
-
+        # Regularization level ; Adaptative combination between lb and ub depending on the relative gap 
+        relative_gap = abs((ub - lb)/lb)  
+        mixing = min(10*relative_gap, 1) # If gap is too big, favor the lb from classic SDDP
+        ℓ = mixing * lb + (1.0 - mixing) * ub
         model = stage_model(hdm, t)
         xₜ = next!(Regsddp, model, V, xₜ, xi, ℓ, τ, t, horizon(hdm))
 
@@ -165,8 +166,9 @@ function solve!(
     D::Array{PolyhedralFunction},
     x₀::Array;
     n_iter=100,
+    n_warming = 10,
     verbose::Int=1,
-    τ=1e8
+    τ=1e8,
 )
     (verbose > 0) && header()
     Ξ = uncertainties(hdm)
@@ -179,6 +181,31 @@ function solve!(
         @printf("\n")
         println(hdm)
         @printf("\n")
+        println("Warm-up: $(n_warming) iterations")
+        @printf(" %4s %15s %15s %10s\n", "-"^4, "-"^15, "-"^15, "-"^10)
+        @printf(" %4s %15s %15s %10s\n", "#it", "LB", "UB", "Gap (%)")
+    end
+
+    # Warming up 
+    ub = Inf
+    tic = time()
+    for i in 1:n_warming
+        scenario = sample(Ξ)
+        # Primal
+        primal_trajectory = forward_pass(solver.primal_sddp, hdm, primal_models, scenario, x₀)
+        dual_trajectory = backward_pass!(solver.primal_sddp, hdm, primal_models, primal_trajectory, V)
+        # Dual
+        backward_pass!(solver.dual_sddp, hdm, dual_models, dual_trajectory, D)
+        ub, p₀ = fenchel_transform(solver.dual_sddp, D[1], x₀)
+
+        if (verbose > 0) && (mod(i, verbose) == 0)
+            lb = V[1](x₀)
+            gap = (ub - lb) / abs(lb)
+            @printf(" %4i %15.6e %15.6e %10.3f\n", i, lb, ub, 100 * gap)
+        end
+    end
+    if verbose > 0
+        @printf("\n")
         @printf(" %4s %15s %15s %10s\n", "-"^4, "-"^15, "-"^15, "-"^10)
         @printf(" %4s %15s %15s %10s\n", "#it", "LB", "UB", "Gap (%)")
     end
@@ -186,7 +213,6 @@ function solve!(
     # Run
     #ub = Inf
     ub, p₀ = fenchel_transform(solver.dual_sddp, D[1], x₀)
-    tic = time()
     for i in 1:n_iter
         scenario = sample(Ξ)
         # Primal
@@ -231,20 +257,22 @@ function regularizedsddp(
     lower_bound=-1e6,
     lip_ub=+1e10,
     lip_lb=-1e10,
-    valid_statuses=[MOI.OPTIMAL]
+    valid_statuses=[MOI.OPTIMAL],
+    n_warming = 10,
 )
     (seed >= 0) && Random.seed!(seed)
     nx, T = number_states(hdm), horizon(hdm)
-    # Polyhedral functions.
+    # Primal Polyhedral function
     V = [PolyhedralFunction(nx, lower_bound) for t in 1:T]
     D = [PolyhedralFunction(nx, lower_bound) for t in 1:T]
-    # Solvers.
+
+    # Solvers
     primal_sddp = SDDP(optimizer, valid_statuses)
     dual_sddp = DualSDDP(optimizer, valid_statuses, lip_lb, lip_ub)
-
+    
     # Solve
     reg_sddp = RegularizedPrimalSDDP(primal_sddp, dual_sddp, τ, mixing)
-    primal_models, dual_models = solve!(reg_sddp, hdm, V, D, x₀; n_iter=n_iter, verbose=verbose, τ=τ)
+    primal_models, dual_models = solve!(reg_sddp, hdm, V, D, x₀; n_iter=n_iter, n_warming=n_warming, verbose=verbose, τ=τ)
 
     # Get upper-bound
     ub, _ = fenchel_transform(dual_sddp, D[1], x₀)
