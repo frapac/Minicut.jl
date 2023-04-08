@@ -46,3 +46,20 @@ function remove_cut(V::PolyhedralFunction, cut_index::Int)
     return PolyhedralFunction(V.λ[to_keep, :], V.γ[to_keep])
 end
 
+#=
+Given two vectors of polyhedral functions V and V_ref, given a trajectory,
+add to V the active cuts of V_ref at the trajectory
+=#
+
+function prunning!(V::Vector{PolyhedralFunction}, V_ref::Vector{PolyhedralFunction}, trajectory::Array{Float64,2}; ε = 1e-6)
+    T = length(V)
+    for t in 1:T
+        value = V_ref[t](trajectory[:, t])
+        for i in 1:ncuts(V_ref[t])
+            if dot(V_ref[t].λ[i,:], trajectory[:, t]) + V_ref[t].γ[i] < value - ε
+                add_cut!(V[t], V_ref[t].λ[i,:], V_ref[t].γ[i])
+            end
+        end
+    end
+end
+

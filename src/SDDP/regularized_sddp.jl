@@ -131,8 +131,8 @@ function reg_forward_pass!(
         else
             ub = lb
         end
-        # Regularization level ; Adaptative combination between lb and ub depending on the relative gap 
-        relative_gap = abs((ub - lb)/lb)  
+        # Regularization level ; Adaptative combination between lb and ub depending on the relative gap
+        relative_gap = abs((ub - lb)/lb)
         mixing = min(10*relative_gap, 1) # If gap is too big, favor the lb from classic SDDP
         ℓ = mixing * lb + (1.0 - mixing) * ub
         model = stage_model(hdm, t)
@@ -186,7 +186,7 @@ function solve!(
         @printf(" %4s %15s %15s %10s\n", "#it", "LB", "UB", "Gap (%)")
     end
 
-    # Warming up 
+    # Warming up
     ub = Inf
     tic = time()
     for i in 1:n_warming
@@ -269,7 +269,7 @@ function regularizedsddp(
     # Solvers
     primal_sddp = SDDP(optimizer, valid_statuses)
     dual_sddp = DualSDDP(optimizer, valid_statuses, lip_lb, lip_ub)
-    
+
     # Solve
     reg_sddp = RegularizedPrimalSDDP(primal_sddp, dual_sddp, τ, mixing)
     primal_models, dual_models = solve!(reg_sddp, hdm, V, D, x₀; n_iter=n_iter, n_warming=n_warming, verbose=verbose, τ=τ)

@@ -87,7 +87,7 @@ function solve2!(
             ub, p₀ = fenchel_transform(solver.dual_sddp, D[1], x₀)
         end
         if  j == n_prunning
-            V_ref = V 
+            V_ref = V
             D_ref = D
             V = [PolyhedralFunction(length(x₀), V[1](x₀)) for t in 1:length(V)]
             D = [PolyhedralFunction(length(x₀), D[1](dual_trajectories[j][:, 1])) for t in 1:length(D)]
@@ -101,7 +101,7 @@ function solve2!(
             gap = (ub - lb) / abs(lb)
             @printf(" %4i %15.6e %15.6e %10.3f\n", i, lb, ub, 100 * gap)
         end
-        # Check if allowed time is over 
+        # Check if allowed time is over
         if time() - tic > allowed_time
             break
         end
@@ -148,7 +148,7 @@ function regularizedsddp2(
     # Solvers
     primal_sddp = SDDP(optimizer, valid_statuses)
     dual_sddp = DualSDDP(optimizer, valid_statuses, lip_lb, lip_ub)
-    
+
     # Solve
     reg_sddp = RegularizedPrimalSDDP(primal_sddp, dual_sddp, τ, mixing)
     primal_models, dual_models = solve2!(reg_sddp, hdm, V, D, x₀; n_iter=n_iter, n_cycle=n_cycle, verbose=verbose, τ=τ, n_prunning = n_prunning, allowed_time=allowed_time)

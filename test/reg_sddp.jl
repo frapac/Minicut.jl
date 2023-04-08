@@ -149,7 +149,7 @@ const GRB_ENV = Gurobi.Env(output_flag = 0)
     reg_sol2 = Minicut.regularizedsddp2(bhm, x0, optimizer; n_iter=max_iter, verbose=10, τ=1e8, lower_bound=lower_bound, n_cycle=n_cycle, n_prunning = n_prunning, allowed_time = allowed_time)
     objective_primal2 = reg_sol2.lower_bound
     objective_dual2 = reg_sol2.upper_bound
-    
+
     #println("SDDP: $objective_sddp ; Reg SDDP primal 2: $objective_primal2 ; Reg SDDP dual 2: $objective_dual2 ")
 
     #@test abs(objective_primal - stat_ub) / stat_ub < 0.01
