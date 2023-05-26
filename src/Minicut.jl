@@ -16,4 +16,7 @@ include("extensive_form.jl")
 include("dualize.jl")
 include("SDDP/generic_sddp.jl")
 
+# Temporary
+include("SDDP/regularized_sddp2.jl")
+
 end # module

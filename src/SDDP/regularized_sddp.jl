@@ -22,7 +22,7 @@ function solve_stage_problem!(sddp::SDDP, model::JuMP.Model, V::Vector{Polyhedra
         for (λ, γ) in eachcut(V[t+1])
             @constraint(model, θ >= λ' * model[_CURRENT_STATE] + γ)
         end
-        @constraint(model, θ + cost >= ℓ)
+        @constraint(model, θ + cost >= ℓ) 
         @objective(model, Min, θ + cost + (1 / (2 * τ)) * sum(vcat(model[_CURRENT_STATE], model[_CURRENT_CONTROL]) .^ 2))
     else
         @objective(model, Min, cost)
@@ -88,20 +88,77 @@ function upperbound(
     return objective_value(model)
 end
 
+############################# XXXXXXXXXXXXXXXXXXXXXX
+# van Ackooij and al. (2019) - Discount rule
+function upperbounds(
+    Regsddp::,
+    ???
+    cumcost::Float64;
+    n_scenarios::Int = 1000
+)
+    upperbounds = zeros(Float64, horizon(hdm))
+    scenarios = Minicut.sample(Ξ, n_scenarios)
+
+    # Monte Carlo upperbound at time t=0
+    cum_costs = Minicut.cum_simulate!(solver, wdm_determistic, models, x0, scenarios)
+    sum_costs = sum(cum_costs, dim = 2)
+    upperbounds[1] = mean(sum_costs) + 1.96 * std(sum_costs) / sqrt(sum_costs)
+
+    for t in 2:horizon(hdm)
+        upperbounds[t] = upperbounds[1] - cum_costs[t-1]
+    end
+# 
+end
+
+# function cum_simulate!(
+#     sddp::AbstractSDDP,
+#     hdm::HazardDecisionModel,
+#     models::Vector{JuMP.Model},
+#     initial_state::Vector{Float64},
+#     uncertainty_scenario::Vector{Array{Float64,2}},
+# )
+#     Ξ = uncertainties(hdm)
+#     n_scenarios = length(uncertainty_scenario)
+#     n_states = number_states(hdm)
+#     xₜ = zeros(n_states)
+#     cum_costs = zeros(n_scenarios, horizon(hdm))
+#     for k in 1:n_scenarios
+#         xₜ .= initial_state
+#         for t in 1:horizon(hdm)
+#             ξ = uncertainty_scenario[k][:, t]
+#             xₜ = next!(sddp, models[t], xₜ, Ξ[t], ξ)
+#             if t == 1
+#                 cum_costs[k, t] = stage_objective_value(sddp, models[t], hdm, t)
+#             else
+#                 cum_costs[k, t] = cum_costs[k, t-1] + stage_objective_value(sddp, models[t], hdm, t)
+#             end
+#         end
+#     end
+#     return cum_costs
+# end
+
 function next!(
     Regsddp::RegularizedPrimalSDDP,
     model::JuMP.Model,
     V::Vector{PolyhedralFunction},
     xₜ::Vector{Float64},
     ξₜ₊₁::Vector{Float64},
-    lb::Float64,
+    ℓ::Float64,
     τ::Float64,
     t,
     T,
 )
     JuMP.set_optimizer(model, Regsddp.primal_sddp.optimizer)
-    solve_stage_problem!(Regsddp.primal_sddp, model, V, xₜ, ξₜ₊₁, lb, τ, t, T)
+    solve_stage_problem!(Regsddp.primal_sddp, model, V, xₜ, ξₜ₊₁, ℓ, τ, t, T)
     return value.(model[_CURRENT_STATE])
+end
+
+############################# XXXXXXXXXXXXXXXXXXXXXX
+# function evaluate_cost(
+#     model::JuMP.Model,
+#     state::Vector{Float64}
+# )
+
 end
 
 function reg_forward_pass!(
@@ -122,10 +179,12 @@ function reg_forward_pass!(
     for (t, ξₜ₊₁) in enumerate(eachcol(uncertainty_scenario))
         xi = collect(ξₜ₊₁)
         # Lower-bound.
+        
         lb = lowerbound(Regsddp.primal_sddp, primal_models[t], xₜ, xi)
 
         # Upper-bound.
         ubmodel = stage_model(hdm, t)
+        
         if t < horizon(hdm)
             ub = upperbound(Regsddp.dual_sddp, ubmodel, xₜ, xi, D[t+1])
         else
@@ -137,7 +196,6 @@ function reg_forward_pass!(
         ℓ = mixing * lb + (1.0 - mixing) * ub
         model = stage_model(hdm, t)
         xₜ = next!(Regsddp, model, V, xₜ, xi, ℓ, τ, t, horizon(hdm))
-
         trajectory[:, t+1] .= xₜ
     end
     return trajectory
@@ -194,7 +252,8 @@ function solve!(
         # Primal
         primal_trajectory = forward_pass(solver.primal_sddp, hdm, primal_models, scenario, x₀)
         dual_trajectory = backward_pass!(solver.primal_sddp, hdm, primal_models, primal_trajectory, V)
-        # Dual
+        # Dual            trajectory[k, t+1, :] .= next!(sddp, models[t], trajectory[k, t, :], Ξ[t], ξ)
+
         backward_pass!(solver.dual_sddp, hdm, dual_models, dual_trajectory, D)
         ub, p₀ = fenchel_transform(solver.dual_sddp, D[1], x₀)
 

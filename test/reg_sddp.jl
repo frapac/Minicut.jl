@@ -5,6 +5,7 @@ using Gurobi
 using Random
 const GRB_ENV = Gurobi.Env(output_flag = 0)
 
+
 # @testset "Regularized SDDP: WaterDamModel" begin
 #     optimizer = JuMP.optimizer_with_attributes(
 #         HiGHS.Optimizer, "output_flag" => false,
@@ -109,10 +110,56 @@ const GRB_ENV = Gurobi.Env(output_flag = 0)
 #     @test abs(objective_sddp - objective_primal) / objective_sddp < 0.01
 # end
 
-@testset "Test reg SDDP brazilian" begin
+# @testset "Test reg SDDP brazilian" begin
+#     Random.seed!(2713)
+#     nscenarios = 10
+#     T = 5
+#     lower_bound = -1e9
+#     max_iter = 300
+#     nsimus = 100
+#     n_warming = 50
+#     n_cycle = 10
+#     n_prunning = 100
+#     allowed_time = 600
+
+#     bhm = BrazilianHydroModel(; T=T, nscen=nscenarios)
+#     nx = Minicut.number_states(bhm)
+#     x0 = bhm.x0
+#     # Initialize value functions.
+#     V = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T]
+
+#     # Solve with SDDP
+#     optimizer = () -> Gurobi.Optimizer(GRB_ENV)
+#     solver = Minicut.SDDP(optimizer, [MOI.OPTIMAL, MOI.OTHER_ERROR])
+#     models = Minicut.solve!(solver, bhm, V, x0; n_iter=max_iter, verbose=10)
+
+#     # # Simulation
+#     # scenarios = Minicut.sample(Minicut.uncertainties(bhm), nsimus)
+#     # costs = Minicut.simulate!(solver, bhm, models, x0, scenarios)
+#     # stat_ub = mean(costs) + 1.96 * std(costs) / sqrt(nsimus)
+#     # objective_sddp = V[1](x0)
+#     # println("Final statistical gap: ", abs(stat_ub - objective_sddp) / abs(stat_ub))
+
+#     # # Solve with regularized SDDP
+#     # reg_sol = Minicut.regularizedsddp(bhm, x0, optimizer; n_iter=max_iter, verbose=10, τ=1e8, lower_bound=lower_bound, n_warming=n_warming)
+#     # objective_primal = reg_sol.lower_bound
+#     # objective_dual = reg_sol.upper_bound
+#     # println("SDDP: $objective_sddp ; Reg SDDP primal: $objective_primal ; Reg SDDP dual: $objective_dual")
+
+#     # Solve with regularized SDDP 2
+#     reg_sol2 = Minicut.regularizedsddp2(bhm, x0, optimizer; n_iter=max_iter, verbose=10, τ=1e8, lower_bound=lower_bound, n_cycle=n_cycle, n_prunning = n_prunning, allowed_time = allowed_time)
+#     objective_primal2 = reg_sol2.lower_bound
+#     objective_dual2 = reg_sol2.upper_bound
+
+#     #println("SDDP: $objective_sddp ; Reg SDDP primal 2: $objective_primal2 ; Reg SDDP dual 2: $objective_dual2 ")
+
+#     #@test abs(objective_primal - stat_ub) / stat_ub < 0.01
+# end
+
+@testset "Test van Ackooij and al. upperbounds" begin
     Random.seed!(2713)
-    nscenarios = 50
-    T = 25
+    nscenarios = 10
+    T = 5
     lower_bound = -1e9
     max_iter = 300
     nsimus = 100
@@ -120,38 +167,27 @@ const GRB_ENV = Gurobi.Env(output_flag = 0)
     n_cycle = 10
     n_prunning = 100
     allowed_time = 600
+    n_scenarios = 1000 # for initial ub by MonteCarlo
 
     bhm = BrazilianHydroModel(; T=T, nscen=nscenarios)
     nx = Minicut.number_states(bhm)
-    x0 = bhm.x0
-    # Initialize value functions.
-    V = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T]
+    x0 = bhm.x0   
 
     # Solve with SDDP
     optimizer = () -> Gurobi.Optimizer(GRB_ENV)
     solver = Minicut.SDDP(optimizer, [MOI.OPTIMAL, MOI.OTHER_ERROR])
+    V = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T]
     models = Minicut.solve!(solver, bhm, V, x0; n_iter=max_iter, verbose=10)
+    objective_sddp = V[1](x0)
 
-    # # Simulation
-    # scenarios = Minicut.sample(Minicut.uncertainties(bhm), nsimus)
-    # costs = Minicut.simulate!(solver, bhm, models, x0, scenarios)
-    # stat_ub = mean(costs) + 1.96 * std(costs) / sqrt(nsimus)
-    # objective_sddp = V[1](x0)
-    # println("Final statistical gap: ", abs(stat_ub - objective_sddp) / abs(stat_ub))
+    # Solve with Wellington sddp
+    optimizer = () -> Gurobi.Optimizer(GRB_ENV)
+    sol_wellington = Minicut.wellington(bhm, x0, optimizer; n_iter=max_iter, verbose=10, τ=1e8, lower_bound=lower_bound, n_cycle=n_cycle, n_prunning = n_prunning, allowed_time = allowed_time, n_scenarios = n_scenarios)
+    objective_wellington = sol_wellington.lower_bound
 
-    # # Solve with regularized SDDP
-    # reg_sol = Minicut.regularizedsddp(bhm, x0, optimizer; n_iter=max_iter, verbose=10, τ=1e8, lower_bound=lower_bound, n_warming=n_warming)
-    # objective_primal = reg_sol.lower_bound
-    # objective_dual = reg_sol.upper_bound
-    # println("SDDP: $objective_sddp ; Reg SDDP primal: $objective_primal ; Reg SDDP dual: $objective_dual")
+    println("SDDP : $objective_sddp")
+    println("Wellington : $objective_wellington")
 
-    # Solve with regularized SDDP 2
-    reg_sol2 = Minicut.regularizedsddp2(bhm, x0, optimizer; n_iter=max_iter, verbose=10, τ=1e8, lower_bound=lower_bound, n_cycle=n_cycle, n_prunning = n_prunning, allowed_time = allowed_time)
-    objective_primal2 = reg_sol2.lower_bound
-    objective_dual2 = reg_sol2.upper_bound
-
-    #println("SDDP: $objective_sddp ; Reg SDDP primal 2: $objective_primal2 ; Reg SDDP dual 2: $objective_dual2 ")
-
-    #@test abs(objective_primal - stat_ub) / stat_ub < 0.01
+    # Better lb for sddp, but much faster wellington
 end
 
