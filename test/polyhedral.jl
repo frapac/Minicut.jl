@@ -17,7 +17,7 @@ using Minicut
     @test Minicut.dimension(V) == n
     @test V(x) == dot(x, cut) + slope
     @test size(V.λ) == (1, n)
-    @test size(V.γ) == (1, )
+    @test size(V.γ) == (1,)
 
     # Cut removal
     Vu = unique(V)
@@ -48,7 +48,20 @@ end
     scenario = Minicut.sample(ds)
     @test isa(scenario, Matrix)
     @test size(scenario) == (n, T)
-
-
 end
 
+@testset "Prunning" begin
+    T = 3
+    nx = 3
+    lower_bound = 0.0
+    # V[1] = V[2] = V[3] = "the absolute value", tested at -1, 0 and 1. We want to keep -x at t=0, both at t=1 and +x at t=2
+    trajectory = hcat(-ones(nx, 1), zeros(nx, 1), ones(nx, 1))
+    V = [Minicut.PolyhedralFunction(vcat(ones(1, nx), -ones(1, nx)), [lower_bound, lower_bound]) for t in 1:T]
+    new_V = Minicut.prunning(V::Vector{PolyhedralFunction}, trajectory::Array{Float64,2}; ε=1e-6)
+    @test new_V[1].λ == -ones(1, nx)
+    @test new_V[1].γ == [0.0]
+    @test new_V[2].λ == [1.0 1.0 1.0; -1.0 -1.0 -1.0]
+    @test new_V[2].γ == [0.0, 0.0]
+    @test new_V[3].λ == ones(1, nx)
+    @test new_V[3].γ == [0.0]
+end
