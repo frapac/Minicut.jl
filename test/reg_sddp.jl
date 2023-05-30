@@ -3,8 +3,77 @@ using HiGHS
 using Statistics
 using Gurobi
 using Random
+
 const GRB_ENV = Gurobi.Env(output_flag = 0)
 
+include("../examples/brazilian/brazilian.jl")
+
+
+@testset "Test van Ackooij and al. upperbounds" begin
+    Random.seed!(2713)
+    nscenarios = 20
+    T = 10
+    lower_bound = -1e9
+    max_iter = 200
+    nsimus = 100
+    n_warming = 50
+    n_cycle = 10
+    n_prunning = 100
+    allowed_time = 120
+    n_scenarios = 1000 # for initial ub by MonteCarlo
+    n_warmup = 250
+    n_simus = 1000
+
+    bhm = BrazilianHydroModel(; T=T, nscen=nscenarios)
+    nx = Minicut.number_states(bhm)
+    x0 = bhm.x0   
+
+    # Solve with SDDP until "saturation"
+    optimizer = () -> Gurobi.Optimizer(GRB_ENV)
+    solver = Minicut.SDDP(optimizer, [MOI.OPTIMAL, MOI.OTHER_ERROR])
+    V1 = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T] # V will contain sddp iters until saturation
+    models = Minicut.solve!(solver, bhm, V1, x0; n_iter=max_iter, verbose=10)
+    # Simulation
+    scenarios = Minicut.sample(Minicut.uncertainties(bhm), nsimus)
+    costs = Minicut.simulate!(solver, bhm, models, x0, scenarios)
+    stat_ub = mean(costs) + 1.96 * std(costs) / sqrt(nsimus)
+    objective_sddp = V1[1](x0)
+    println("SDDP statistical gap: $((abs(stat_ub - objective_sddp) / abs(stat_ub))*100)% ")
+    println("size(V[1].λ) = $(size(V1[1].λ))")
+    println("size(V[1].γ) = $(size(V1[1].γ))")
+
+    # We keep trying to do SDDP
+    V2 = Minicut.realcopy.(V1)
+    optimizer2 = () -> Gurobi.Optimizer(GRB_ENV)
+    solver2 = Minicut.SDDP(optimizer2, [MOI.OPTIMAL, MOI.OTHER_ERROR]) 
+    bhm2 = BrazilianHydroModel(; T=T, nscen=nscenarios)
+    println("size(V1[1].γ) = $(size(V1[1].γ))")
+    models2 = Minicut.solve!(solver2, bhm2, V2, bhm2.x0; n_iter=max_iter, verbose=10)
+    println("size(V1[1].γ) = $(size(V1[1].γ))")
+    scenarios2 = Minicut.sample(Minicut.uncertainties(bhm2), nsimus)
+    costs2 = Minicut.simulate!(solver2, bhm2, models2, x0, scenarios2)
+    stat_ub2 = mean(costs2) + 1.96 * std(costs2) / sqrt(nsimus)
+    objective_sddp2 = V2[1](x0)
+    println("Keep trying SDDP statistical gap: $((abs(stat_ub2 - objective_sddp2) / abs(stat_ub2))*100)% ")
+
+    # Solve with Wellington sddp, uses the result of SDDP as warmup
+    optimizer = () -> Gurobi.Optimizer(GRB_ENV)
+    V1 = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T]
+    sol_wellington = Minicut.reg_discount(bhm, x0, optimizer, V1; n_iter=max_iter, verbose=10, τ=1e8, n_prunning = n_prunning, allowed_time = allowed_time, n_scenarios = n_scenarios, n_warmup = n_warmup, valid_statuses = [MOI.OPTIMAL, MOI.LOCALLY_SOLVED])
+    objective_wellington = sol_wellington.lower_bound
+
+    # Solve with regularized SDDP 2, uses the result of SDDP as n_warmup
+    V1 = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T]
+    D = [PolyhedralFunction(nx, lower_bound) for t in 1:T]
+    reg_sol2 = Minicut.regularizedsddp2(bhm, x0, optimizer, V1, D; n_iter=max_iter, verbose=10, τ=1e8, lower_bound=lower_bound, n_cycle=n_cycle, n_prunning = n_prunning, allowed_time = allowed_time, n_warmup = n_warmup)
+    objective_primal2 = reg_sol2.lower_bound
+    objective_dual2 = reg_sol2.upper_bound
+
+    println("Objective function after $(allowed_time)s or $(max_iter) additional iterations of")
+    println("   SDDP.........: $objective_sddp2")
+    println("   Wellington...: $objective_wellington")
+    println("   Reg. SDDP 2..: $objective_primal2")
+end
 
 # @testset "Regularized SDDP: WaterDamModel" begin
 #     optimizer = JuMP.optimizer_with_attributes(
@@ -155,39 +224,3 @@ const GRB_ENV = Gurobi.Env(output_flag = 0)
 
 #     #@test abs(objective_primal - stat_ub) / stat_ub < 0.01
 # end
-
-@testset "Test van Ackooij and al. upperbounds" begin
-    Random.seed!(2713)
-    nscenarios = 20
-    T = 10
-    lower_bound = -1e9
-    max_iter = 100
-    nsimus = 100
-    n_warming = 50
-    n_cycle = 10
-    n_prunning = 100
-    allowed_time = 100
-    n_scenarios = 1000 # for initial ub by MonteCarlo
-
-    bhm = BrazilianHydroModel(; T=T, nscen=nscenarios)
-    nx = Minicut.number_states(bhm)
-    x0 = bhm.x0   
-
-    # Solve with SDDP
-    optimizer = () -> Gurobi.Optimizer(GRB_ENV)
-    solver = Minicut.SDDP(optimizer, [MOI.OPTIMAL, MOI.OTHER_ERROR])
-    V = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T]
-    models = Minicut.solve!(solver, bhm, V, x0; n_iter=max_iter, verbose=10)
-    objective_sddp = V[1](x0)
-
-    # Solve with Wellington sddp
-    optimizer = () -> Gurobi.Optimizer(GRB_ENV)
-    sol_wellington = Minicut.wellington(bhm, x0, optimizer; n_iter=max_iter*10, verbose=10, τ=1e8, lower_bound=lower_bound, n_cycle=n_cycle, n_prunning = n_prunning, allowed_time = allowed_time, n_scenarios = n_scenarios)
-    objective_wellington = sol_wellington.lower_bound
-
-    println("SDDP : $objective_sddp")
-    println("Wellington : $objective_wellington")
-
-    # Better lb for sddp, but much faster wellington
-end
-

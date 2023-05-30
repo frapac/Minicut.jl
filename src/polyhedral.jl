@@ -46,6 +46,11 @@ function remove_cut(V::PolyhedralFunction, cut_index::Int)
     return PolyhedralFunction(V.λ[to_keep, :], V.γ[to_keep])
 end
 
+function realcopy(V::PolyhedralFunction)
+    return PolyhedralFunction(V.λ, V.γ)
+end
+
+
 #=
 Given two vectors of polyhedral functions V and V_ref, given a trajectory,
 add to V the active cuts of V_ref at the trajectory

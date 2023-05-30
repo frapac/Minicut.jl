@@ -7,9 +7,10 @@ struct RegularizedPrimalSDDP <: AbstractSDDP
     dual_sddp::DualSDDP
     tau::Float64
     mixing::Float64
-end
+    name::String
+end 
 
-introduce(::RegularizedPrimalSDDP) = "Regularized Primal SDDP"
+introduce(regsddp::RegularizedPrimalSDDP) = regsddp.name
 
 # Should change later: currently it re adds a ρ variable everytime
 function solve_stage_problem!(sddp::SDDP, model::JuMP.Model, V::Vector{PolyhedralFunction}, xₜ::Vector{Float64}, ξₜ₊₁::Vector{Float64}, ℓ::Float64, τ::Float64, t, T)
@@ -273,7 +274,7 @@ function regularizedsddp(
     dual_sddp = DualSDDP(optimizer, valid_statuses, lip_lb, lip_ub)
 
     # Solve
-    reg_sddp = RegularizedPrimalSDDP(primal_sddp, dual_sddp, τ, mixing)
+    reg_sddp = RegularizedPrimalSDDP(primal_sddp, dual_sddp, τ, mixing, "Regularized Primal SDDP")
     primal_models, dual_models = solve!(reg_sddp, hdm, V, D, x₀; n_iter=n_iter, n_warming=n_warming, verbose=verbose, τ=τ)
 
     # Get upper-bound

@@ -18,5 +18,7 @@ include("SDDP/generic_sddp.jl")
 
 # Temporary
 include("SDDP/regularized_sddp2.jl")
+include("SDDP/regularized_discount.jl")
+include("SDDP/regularized_minub.jl")
 
 end # module
