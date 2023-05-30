@@ -158,15 +158,15 @@ const GRB_ENV = Gurobi.Env(output_flag = 0)
 
 @testset "Test van Ackooij and al. upperbounds" begin
     Random.seed!(2713)
-    nscenarios = 10
-    T = 5
+    nscenarios = 20
+    T = 10
     lower_bound = -1e9
-    max_iter = 300
+    max_iter = 100
     nsimus = 100
     n_warming = 50
     n_cycle = 10
     n_prunning = 100
-    allowed_time = 600
+    allowed_time = 100
     n_scenarios = 1000 # for initial ub by MonteCarlo
 
     bhm = BrazilianHydroModel(; T=T, nscen=nscenarios)
@@ -182,7 +182,7 @@ const GRB_ENV = Gurobi.Env(output_flag = 0)
 
     # Solve with Wellington sddp
     optimizer = () -> Gurobi.Optimizer(GRB_ENV)
-    sol_wellington = Minicut.wellington(bhm, x0, optimizer; n_iter=max_iter, verbose=10, τ=1e8, lower_bound=lower_bound, n_cycle=n_cycle, n_prunning = n_prunning, allowed_time = allowed_time, n_scenarios = n_scenarios)
+    sol_wellington = Minicut.wellington(bhm, x0, optimizer; n_iter=max_iter*10, verbose=10, τ=1e8, lower_bound=lower_bound, n_cycle=n_cycle, n_prunning = n_prunning, allowed_time = allowed_time, n_scenarios = n_scenarios)
     objective_wellington = sol_wellington.lower_bound
 
     println("SDDP : $objective_sddp")

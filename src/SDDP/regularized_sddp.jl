@@ -88,55 +88,6 @@ function upperbound(
     return objective_value(model)
 end
 
-############################# XXXXXXXXXXXXXXXXXXXXXX
-# van Ackooij and al. (2019) - Discount rule
-function upperbounds(
-    Regsddp::,
-    ???
-    cumcost::Float64;
-    n_scenarios::Int = 1000
-)
-    upperbounds = zeros(Float64, horizon(hdm))
-    scenarios = Minicut.sample(Ξ, n_scenarios)
-
-    # Monte Carlo upperbound at time t=0
-    cum_costs = Minicut.cum_simulate!(solver, wdm_determistic, models, x0, scenarios)
-    sum_costs = sum(cum_costs, dim = 2)
-    upperbounds[1] = mean(sum_costs) + 1.96 * std(sum_costs) / sqrt(sum_costs)
-
-    for t in 2:horizon(hdm)
-        upperbounds[t] = upperbounds[1] - cum_costs[t-1]
-    end
-# 
-end
-
-# function cum_simulate!(
-#     sddp::AbstractSDDP,
-#     hdm::HazardDecisionModel,
-#     models::Vector{JuMP.Model},
-#     initial_state::Vector{Float64},
-#     uncertainty_scenario::Vector{Array{Float64,2}},
-# )
-#     Ξ = uncertainties(hdm)
-#     n_scenarios = length(uncertainty_scenario)
-#     n_states = number_states(hdm)
-#     xₜ = zeros(n_states)
-#     cum_costs = zeros(n_scenarios, horizon(hdm))
-#     for k in 1:n_scenarios
-#         xₜ .= initial_state
-#         for t in 1:horizon(hdm)
-#             ξ = uncertainty_scenario[k][:, t]
-#             xₜ = next!(sddp, models[t], xₜ, Ξ[t], ξ)
-#             if t == 1
-#                 cum_costs[k, t] = stage_objective_value(sddp, models[t], hdm, t)
-#             else
-#                 cum_costs[k, t] = cum_costs[k, t-1] + stage_objective_value(sddp, models[t], hdm, t)
-#             end
-#         end
-#     end
-#     return cum_costs
-# end
-
 function next!(
     Regsddp::RegularizedPrimalSDDP,
     model::JuMP.Model,
@@ -151,14 +102,6 @@ function next!(
     JuMP.set_optimizer(model, Regsddp.primal_sddp.optimizer)
     solve_stage_problem!(Regsddp.primal_sddp, model, V, xₜ, ξₜ₊₁, ℓ, τ, t, T)
     return value.(model[_CURRENT_STATE])
-end
-
-############################# XXXXXXXXXXXXXXXXXXXXXX
-# function evaluate_cost(
-#     model::JuMP.Model,
-#     state::Vector{Float64}
-# )
-
 end
 
 function reg_forward_pass!(
@@ -192,7 +135,7 @@ function reg_forward_pass!(
         end
         # Regularization level ; Adaptative combination between lb and ub depending on the relative gap
         relative_gap = abs((ub - lb)/lb)
-        mixing = min(10*relative_gap, 1) # If gap is too big, favor the lb from classic SDDP
+        mixing = 0.5/t # Implementation details p.25 [van Ackooij et al. (2019)]
         ℓ = mixing * lb + (1.0 - mixing) * ub
         model = stage_model(hdm, t)
         xₜ = next!(Regsddp, model, V, xₜ, xi, ℓ, τ, t, horizon(hdm))

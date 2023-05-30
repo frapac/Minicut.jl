@@ -235,16 +235,15 @@ function solve_wellington!(
     end
 
     # Run
-    ub =  montecarlo_ub(solver.primal_sddp, hdm, primal_models, n_scenarios, x₀, Ξ) 
     primal_trajectories = Array{Matrix{Float64}}(undef, n_prunning)
+    ub = .0
     for i in 1:n_iter
+        ub =  montecarlo(solver.primal_sddp, hdm, primal_models, n_scenarios, x₀, Ξ) 
         scenario = sample(Ξ)
         j = mod(i, n_prunning) + 1 # Current index since last prunning
-        if mod(i, n_cycle) == 0 # Update upper bounds via dual sddp
-            # Primal
-            primal_trajectories[j] = wellington_forward_pass(solver, hdm, primal_models, ub,  V,  scenario, x₀, τ)
-            backward_pass!(solver.primal_sddp, hdm, primal_models, primal_trajectories[j], V)
-        end
+        # Primal
+        primal_trajectories[j] = wellington_forward_pass(solver, hdm, primal_models, ub,  V,  scenario, x₀, τ)
+        backward_pass!(solver.primal_sddp, hdm, primal_models, primal_trajectories[j], V)
         # if  j == n_prunning
         #     V_ref = V
         #     V = [PolyhedralFunction(length(x₀), V[1](x₀)) for t in 1:length(V)]
@@ -262,7 +261,7 @@ function solve_wellington!(
             break
         end
     end
-
+    sample
     status = MOI.ITERATION_LIMIT
     # Final status
     if verbose > 0
@@ -277,19 +276,57 @@ function solve_wellington!(
     return primal_models
 end
 
-function montecarlo_ub(
+function montecarlo(
     sddp::SDDP,
     hdm::HazardDecisionModel,
     models::Vector{JuMP.Model},
     n_scenarios::Int,
     initial_state::Vector{Float64},
-    Ξ # ADD THE TYPE 
+    Ξ::Vector{DiscreteRandomVariable{Float64}}
 )
-
-    n_s = min(n_scenarios, length(Ξ))
-    scenarios = Minicut.sample(Ξ, n_s)
+    scenarios = Minicut.sample(Ξ, n_scenarios)
     costs = Minicut.simulate!(sddp, hdm, models, initial_state, scenarios)
     return mean(costs) + 1.96 * std(costs) / sqrt(n_scenarios)
+end
+
+function montecarlo(
+    sddp::SDDP,
+    hdm::HazardDecisionModel,
+    models::Vector{JuMP.Model},
+    n_scenarios::Int,
+    initial_state::Vector{Float64},
+    Ξ::Vector{DiscreteRandomVariable{Float64}},
+    t::Int
+)
+    @assert t < horizon(hdm) 
+    scenarios = Minicut.sample(Ξ[t+1:horizon(hdm)], n_scenarios)
+    costs = Minicut.simulate!(sddp, hdm, models, initial_state, scenarios, t)
+    return mean(costs) + 1.96 * std(costs) / sqrt(n_scenarios)
+end
+
+function simulate!(
+    sddp::AbstractSDDP,
+    hdm::HazardDecisionModel,
+    models::Vector{JuMP.Model},
+    initial_state::Vector{Float64},
+    uncertainty_scenario::Vector{Array{Float64,2}},
+    t0::Int
+)
+    @assert t0 < horizon(hdm)
+    Ξ = uncertainties(hdm)
+    n_scenarios = length(uncertainty_scenario)
+    n_states = number_states(hdm)
+    xₜ = zeros(n_states)
+    costs = zeros(n_scenarios)
+    for k in 1:n_scenarios
+        xₜ .= initial_state
+        for t in t0:horizon(hdm)
+            ξ = uncertainty_scenario[k][:, t]
+            xₜ = next!(sddp, models[t], xₜ, Ξ[t], ξ)
+            costs[k] += stage_objective_value(sddp, models[t], hdm, t)
+        end
+    end
+    return costs
 end
 
 # van Ackooij and al. forward pass 
@@ -313,21 +350,19 @@ function wellington_forward_pass!(
         xi = collect(ξₜ₊₁)
         # Lower-bound.
         lb = lowerbound(Regsddp.primal_sddp, primal_models[t], xₜ, xi)
-
-        # Upper-bound.
-        ubmodel = stage_model(hdm, t)
-        
+     
         if t == 1 
-            ub = init_ub
+            ub_t = init_ub
         elseif t < horizon(hdm)
-            ub = init_ub - cum_cost
+            ub_t = init_ub - cum_cost
         else
-            ub = lb
+            ub_t = lb
         end
-        # Regularization level ; Adaptative combination between lb and ub depending on the relative gap
-        relative_gap = abs((ub - lb)/lb)
-        mixing = min(10*relative_gap, 1) # If gap is too big, favor the lb from classic SDDP
-        ℓ = mixing * lb + (1.0 - mixing) * ub
+        # Regularization level ; Adaptative combination between lb and ub_t depending on the relative gap
+        relative_gap = (ub_t - lb)/abs(lb)
+        mixing = min(relative_gap, 1) # If gap is too big, favor the lb from classic SDDP
+        #mixing = .5
+        ℓ = mixing * lb + (1.0 - mixing) * ub_t
         
         model = stage_model(hdm, t)
         xₜ = next!(Regsddp, model, V, xₜ, xi, ℓ, τ, t, horizon(hdm))
@@ -350,4 +385,63 @@ function wellington_forward_pass(
     horizon = size(uncertainty_scenario, 2)
     primal_trajectory = fill(0.0, length(initial_state), horizon + 1)
     return wellington_forward_pass!(Regsddp, hdm, primal_models, init_ub, V, uncertainty_scenario, initial_state, primal_trajectory, τ)
+end
+
+function minub(
+    sddp::SDDP,
+    hdm::HazardDecisionModel,
+    models::Vector{JuMP.Model},
+    n_scenarios::Int,
+    initial_state::Vector{Float64},
+    Ξ::Vector{DiscreteRandomVariable{Float64}},
+    t::Int
+)
+    z = zeros(Float64, length(Ξ[t]))
+    for j in 1:length(Ξ[t])
+        x_j = next!(sddp, models[t], initial_state, Ξ[t], ξ)
+        z[j] = montecarlo(sddp, hdm, models[t+1:horizon(hdm)], n_scenarios, x_j, Ξ[t+1:T], t)
+    end
+    return minimum(z)
+end
+
+function minub_forward_pass!(
+    Regsddp::RegularizedPrimalSDDP,
+    hdm::HazardDecisionModel,
+    primal_models::Vector{JuMP.Model},
+    V::Vector{PolyhedralFunction},
+    uncertainty_scenario::Array{Float64,2},
+    initial_state::Vector{Float64},
+    trajectory::Array{Float64,2},
+    τ::Float64
+)
+    Ξ = uncertainties(hdm)
+    xₜ = copy(initial_state)
+    trajectory[:, 1] .= xₜ
+    cum_cost = 0.0
+
+    for (t, ξₜ₊₁) in enumerate(eachcol(uncertainty_scenario))
+        xi = collect(ξₜ₊₁)
+        # Lower-bound.
+        lb = lowerbound(Regsddp.primal_sddp, primal_models[t], xₜ, xi)
+
+        # Upper-bound.
+        ubmodel = stage_model(hdm, t)
+        
+        if t < horizon(hdm)
+            ub = init_ub - cum_cost
+        else
+            ub = lb
+        end
+        # Regularization level ; Adaptative combination between lb and ub depending on the relative gap
+        relative_gap = abs((ub - lb)/lb)
+        mixing = min(0.1*relative_gap, 1) # If gap is too big, favor the lb from classic SDDP
+        #mixing = .5
+        ℓ = mixing * lb + (1.0 - mixing) * ub
+        
+        model = stage_model(hdm, t)
+        xₜ = next!(Regsddp, model, V, xₜ, xi, ℓ, τ, t, horizon(hdm))
+        cum_cost += stage_objective_value(Regsddp.primal_sddp, model, hdm, t)
+        trajectory[:, t+1] .= xₜ
+    end
+    return trajectory
 end
