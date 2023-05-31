@@ -9,16 +9,15 @@ const GRB_ENV = Gurobi.Env(output_flag = 0)
 include("../examples/brazilian/brazilian.jl")
 
 
-@testset "Test van Ackooij and al. upperbounds" begin
+@testset "Test upperbounds on Brazilan Hydrothermal problem" begin
     Random.seed!(2713)
     nscenarios = 20
     T = 10
     lower_bound = -1e9
     max_iter = 200
     nsimus = 100
-    n_warming = 50
     n_cycle = 10
-    n_prunning = 100
+    n_pruning = 100
     allowed_time = 120
     n_scenarios = 1000 # for initial ub by MonteCarlo
     n_warmup = 250
@@ -59,13 +58,13 @@ include("../examples/brazilian/brazilian.jl")
     # Solve with Wellington sddp, uses the result of SDDP as warmup
     optimizer = () -> Gurobi.Optimizer(GRB_ENV)
     V1 = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T]
-    sol_wellington = Minicut.reg_discount(bhm, x0, optimizer, V1; n_iter=max_iter, verbose=10, τ=1e8, n_prunning = n_prunning, allowed_time = allowed_time, n_scenarios = n_scenarios, n_warmup = n_warmup, valid_statuses = [MOI.OPTIMAL, MOI.LOCALLY_SOLVED])
+    sol_wellington = Minicut.reg_discount(bhm, x0, optimizer, V1; n_iter=max_iter, verbose=10, τ=1e8, n_pruning = n_pruning, allowed_time = allowed_time, n_scenarios = n_scenarios, n_warmup = n_warmup, valid_statuses = [MOI.OPTIMAL, MOI.LOCALLY_SOLVED])
     objective_wellington = sol_wellington.lower_bound
 
     # Solve with regularized SDDP 2, uses the result of SDDP as n_warmup
     V1 = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T]
     D = [PolyhedralFunction(nx, lower_bound) for t in 1:T]
-    reg_sol2 = Minicut.regularizedsddp2(bhm, x0, optimizer, V1, D; n_iter=max_iter, verbose=10, τ=1e8, lower_bound=lower_bound, n_cycle=n_cycle, n_prunning = n_prunning, allowed_time = allowed_time, n_warmup = n_warmup)
+    reg_sol2 = Minicut.regularizedsddp2(bhm, x0, optimizer, V1, D; n_iter=max_iter, verbose=10, τ=1e8, lower_bound=lower_bound, n_cycle=n_cycle, n_pruning = n_pruning, allowed_time = allowed_time, n_warmup = n_warmup)
     objective_primal2 = reg_sol2.lower_bound
     objective_dual2 = reg_sol2.upper_bound
 
@@ -188,7 +187,7 @@ end
 #     nsimus = 100
 #     n_warming = 50
 #     n_cycle = 10
-#     n_prunning = 100
+#     n_pruning = 100
 #     allowed_time = 600
 
 #     bhm = BrazilianHydroModel(; T=T, nscen=nscenarios)
@@ -216,7 +215,7 @@ end
 #     # println("SDDP: $objective_sddp ; Reg SDDP primal: $objective_primal ; Reg SDDP dual: $objective_dual")
 
 #     # Solve with regularized SDDP 2
-#     reg_sol2 = Minicut.regularizedsddp2(bhm, x0, optimizer; n_iter=max_iter, verbose=10, τ=1e8, lower_bound=lower_bound, n_cycle=n_cycle, n_prunning = n_prunning, allowed_time = allowed_time)
+#     reg_sol2 = Minicut.regularizedsddp2(bhm, x0, optimizer; n_iter=max_iter, verbose=10, τ=1e8, lower_bound=lower_bound, n_cycle=n_cycle, n_pruning = n_pruning, allowed_time = allowed_time)
 #     objective_primal2 = reg_sol2.lower_bound
 #     objective_dual2 = reg_sol2.upper_bound
 
