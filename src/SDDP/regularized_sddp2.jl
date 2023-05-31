@@ -9,7 +9,7 @@ function solve2!(
     n_cycle = 20,
     verbose::Int=1,
     τ=1e8,
-    n_prunning = 100,
+    n_pruning = 100,
     n_warmup = 50,
     allowed_time = 300,
 )
@@ -28,7 +28,7 @@ function solve2!(
         @printf("\n")
     end
 
-    warmup!(solver, primal_models, dual_models, hdm, V, D, x₀; verbose=verbose, n_warmup = n_warmup, n_prunning = n_prunning)
+    warmup!(solver, primal_models, dual_models, hdm, V, D, x₀; verbose=verbose, n_warmup = n_warmup, n_pruning = n_pruning)
 
     if verbose > 0
         @printf(" %4s %15s %15s %10s\n", "-"^4, "-"^15, "-"^15, "-"^10)
@@ -38,11 +38,11 @@ function solve2!(
     tic = time()
     ub = Inf
     ub, p₀ = fenchel_transform(solver.dual_sddp, D[1], x₀)
-    primal_trajectories = Array{Matrix{Float64}}(undef, n_prunning)
-    dual_trajectories = Array{Matrix{Float64}}(undef, n_prunning)
+    primal_trajectories = Array{Matrix{Float64}}(undef, n_pruning)
+    dual_trajectories = Array{Matrix{Float64}}(undef, n_pruning)
     for i in 1:n_iter
         scenario = sample(Ξ)
-        j = mod(i, n_prunning) + 1 # Current index since last prunning
+        j = mod(i, n_pruning) + 1 # Current index since last pruning
         if mod(i, n_cycle) == 0 # Update upper bounds via dual sddp
             # Primal
             primal_trajectories[j] = reg_forward_pass(solver, hdm, primal_models, dual_models, V, D, scenario, x₀, τ)
@@ -59,15 +59,9 @@ function solve2!(
             backward_pass!(solver.dual_sddp, hdm, dual_models, dual_trajectories[j], D)
             ub, p₀ = fenchel_transform(solver.dual_sddp, D[1], x₀)
         end
-        if  j == n_prunning
-            V_ref = realcopy.(V)
-            D_ref = realcopy.(D)
-            V = [PolyhedralFunction(length(x₀), V[1](x₀)) for t in 1:length(V)]
-            D = [PolyhedralFunction(length(x₀), D[1](dual_trajectories[j][:, 1])) for t in 1:length(D)]
-            for k in length(primal_trajectories)
-                prunning!(V, V_ref, primal_trajectories[k])
-                prunning!(D, D_ref, dual_trajectories[k])
-            end
+        if  j == n_pruning
+            V = pruning(V,  primal_trajectories)
+            D = pruning(D, dual_trajectories)
         end
         if (verbose > 0) && (mod(i, verbose) == 0)
             lb = V[1](x₀)
@@ -111,7 +105,7 @@ function regularizedsddp2(
     lip_lb=-1e10,
     valid_statuses=[MOI.OPTIMAL],
     n_cycle= 10,
-    n_prunning = 100,
+    n_pruning = 100,
     allowed_time = 300,
     n_warmup = 50,
 )
@@ -125,7 +119,7 @@ function regularizedsddp2(
 
     # Solve
     reg_sddp = RegularizedPrimalSDDP(primal_sddp, dual_sddp, τ, mixing, "Regularized Primal SDDP")
-    primal_models, dual_models = solve2!(reg_sddp, hdm, V, D, x₀; n_iter=n_iter, n_cycle=n_cycle, verbose=verbose, τ=τ, n_prunning = n_prunning, allowed_time=allowed_time, n_warmup = n_warmup)
+    primal_models, dual_models = solve2!(reg_sddp, hdm, V, D, x₀; n_iter=n_iter, n_cycle=n_cycle, verbose=verbose, τ=τ, n_pruning = n_pruning, allowed_time=allowed_time, n_warmup = n_warmup)
 
     # Get upper-bound
     ub, _ = fenchel_transform(dual_sddp, D[1], x₀)
@@ -151,15 +145,15 @@ function warmup!(
     x₀::Array;
     verbose::Int=1,
     n_warmup = 50,
-    n_prunning = 100
+    n_pruning = 100
 )
     Ξ = uncertainties(hdm)
     ub = Inf
-    primal_trajectories = Array{Matrix{Float64}}(undef, n_prunning)
-    dual_trajectories = Array{Matrix{Float64}}(undef, n_prunning)
+    primal_trajectories = Array{Matrix{Float64}}(undef, n_pruning)
+    dual_trajectories = Array{Matrix{Float64}}(undef, n_pruning)
     for i in 1:n_warmup
         scenario = sample(Ξ)
-        j = mod(i, n_prunning) + 1
+        j = mod(i, n_pruning) + 1
         # Primal
         primal_trajectories[j] = forward_pass(solver.primal_sddp, hdm, primal_models, scenario, x₀)
         dual_trajectories[j] = backward_pass!(solver.primal_sddp, hdm, primal_models, primal_trajectories[j], V)
@@ -167,13 +161,9 @@ function warmup!(
         backward_pass!(solver.dual_sddp, hdm, dual_models, dual_trajectories[j], D)
         ub, p₀ = fenchel_transform(solver.dual_sddp, D[1], x₀)
         if  j == 1
-            V_ref = realcopy.(V)
-            D_ref = realcopy.(D)
-            V = [PolyhedralFunction(length(x₀), V[1](x₀)) for t in 1:length(V)]
-            D = [PolyhedralFunction(length(x₀), D[1](dual_trajectories[j][:, 1])) for t in 1:length(D)]
             for j in length(primal_trajectories)
-                prunning!(V, V_ref, primal_trajectories[j])
-                prunning!(D, D_ref, dual_trajectories[j])
+                V = pruning(V,  primal_trajectories)
+                D = pruning(D, dual_trajectories)
             end
         end
         if (verbose > 0) && (mod(i, verbose) == 0) && (n_warmup > 0)

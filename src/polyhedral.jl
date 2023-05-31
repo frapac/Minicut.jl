@@ -52,33 +52,46 @@ end
 
 
 #=
-Given two vectors of polyhedral functions V and V_ref, given a trajectory,
-add to V the active cuts of V_ref at the trajectory
+Given two vectors of polyhedral functions V and new_V, given a trajectory,
+add to new_V the active cuts of V at the trajectory
 =#
 
-function prunning!(V::Vector{PolyhedralFunction}, V_ref::Vector{PolyhedralFunction}, trajectory::Array{Float64,2}; ε=1e-6)
-    T = length(V)
+
+function pruning!(V::Vector{PolyhedralFunction}, trajectories::Vector{Array{Float64,2}}, new_V::Vector{PolyhedralFunction}, T::Int; ε=1e-6)
     for t in 1:T
-        value = V_ref[t](trajectory[:, t])
-        for i in 1:ncuts(V_ref[t])
-            if dot(V[t].λ[i, :], trajectory[:, t]) + V[t].γ[i] > value - ε
-                add_cut!(V[t], V_ref[t].λ[i, :], V_ref[t].γ[i])
+        cut_indexes = zeros(Int, 0)
+        for j in 1:length(trajectories)
+            if ncuts(V[t]) != 0
+                value = V[t](trajectories[j][:, t])
+                for i in ncuts(V[t]):-1:1
+                    if (i∉ cut_indexes) && (dot(V[t].λ[i, :], trajectories[j][:, t]) + V[t].γ[i] > value - ε)
+                        push!(cut_indexes, i)
+                    end
+                end
             end
+        end
+        for i in cut_indexes
+            add_cut!(new_V[t], V[t].λ[i, :], V[t].γ[i])
         end
     end
 end
 
-function prunning(V::Vector{PolyhedralFunction}, trajectory::Array{Float64,2}; ε=1e-6)
+
+#= 
+Given a vector of polyhedral functions V and an array of trajectories, return a new polyhedral function new_V with the cuts of V which are active at some trial point.
+=# 
+
+function pruning(V::Vector{PolyhedralFunction}, trajectories::Vector{Matrix{Float64}}; verbose = 0, ε = 1e-6)
     T = length(V)
     nx = dimension(V[1])
     new_V = [PolyhedralFunction(nx) for t in 1:T]
-    for t in 1:T
-        value = V[t](trajectory[:, t])
-        for i in 1:ncuts(V[t])
-            if dot(V[t].λ[i, :], trajectory[:, t]) + V[t].γ[i] > value - ε
-                add_cut!(new_V[t], V[t].λ[i, :], V[t].γ[i])
-            end
-        end
+    if verbose > 0
+        n_cuts = [ncuts(V[t]) for t in 1:T]
+    end
+    pruning!(V, trajectories, new_V, T; ε = ε)
+    if verbose > 0
+        new_n_cuts = [ncuts(new_V[t]) for t in 1:T]
+        println("Nb of cuts deleted after pruning: $(sum(n_cuts - new_n_cuts))")
     end
     return new_V
 end

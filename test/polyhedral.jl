@@ -50,18 +50,19 @@ end
     @test size(scenario) == (n, T)
 end
 
-@testset "Prunning" begin
+@testset "Pruning" begin
     T = 3
     nx = 3
     lower_bound = 0.0
-    # V[1] = V[2] = V[3] = "the absolute value", tested at -1, 0 and 1. We want to keep -x at t=0, both at t=1 and +x at t=2
+    # V[1] = V[2] = V[3] = "the absolute value", tested at -1, 0 and 1. We want to keep -x at t=0, both at t=1 and +x at t=2. We should throw away two cuts.
     trajectory = hcat(-ones(nx, 1), zeros(nx, 1), ones(nx, 1))
+    trajectories = [trajectory, trajectory]
     V = [Minicut.PolyhedralFunction(vcat(ones(1, nx), -ones(1, nx)), [lower_bound, lower_bound]) for t in 1:T]
-    new_V = Minicut.prunning(V::Vector{PolyhedralFunction}, trajectory::Array{Float64,2}; ε=1e-6)
-    @test new_V[1].λ == -ones(1, nx)
-    @test new_V[1].γ == [0.0]
-    @test new_V[2].λ == [1.0 1.0 1.0; -1.0 -1.0 -1.0]
-    @test new_V[2].γ == [0.0, 0.0]
-    @test new_V[3].λ == ones(1, nx)
-    @test new_V[3].γ == [0.0]
+    V = Minicut.pruning(V::Vector{PolyhedralFunction}, trajectories; ε=1e-6, verbose = 0)
+    @test V[1].λ == -ones(1, nx)
+    @test V[1].γ == [0.0]
+    @test V[2].λ == [ -1.0 -1.0 -1.0; 1.0 1.0 1.0]
+    @test V[2].γ == [0.0, 0.0]
+    @test V[3].λ == ones(1, nx)
+    @test V[3].γ == [0.0]
 end

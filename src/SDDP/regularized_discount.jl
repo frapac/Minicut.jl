@@ -10,7 +10,7 @@ function solve_discount!(
     n_iter=100,
     verbose::Int=1,
     τ=1e8,
-    n_prunning = 100,
+    n_pruning = 100,
     allowed_time = 300,
     n_scenarios = 1000,
     n_warmup = 50,
@@ -37,16 +37,12 @@ function solve_discount!(
 
     # Run
     tic = time()
-    primal_trajectories = Array{Matrix{Float64}}(undef, n_prunning)
+    primal_trajectories = Array{Matrix{Float64}}(undef, n_pruning)
     ub = .0
     for i in 1:n_iter
-        j = mod(i, n_prunning) + 1 # Current index since last prunning
-        if  j == n_prunning
-            V_ref = realcopy.(V)
-            V = [PolyhedralFunction(length(x₀), V[1](x₀)) for t in 1:length(V)]
-            for j in length(primal_trajectories)
-                prunning!(V, V_ref, primal_trajectories[j])
-            end
+        j = mod(i, n_pruning) + 1 # Current index since last pruning
+        if  j == n_pruning
+            V = pruning(V, primal_trajectories)
         end
         ub =  montecarlo(solver.primal_sddp, hdm, primal_models, n_scenarios, x₀, Ξ) 
         scenario = sample(Ξ)
@@ -146,7 +142,7 @@ function reg_discount(
     lip_ub=+1e10,
     lip_lb=-1e10,
     valid_statuses=[MOI.OPTIMAL],
-    n_prunning = 100,
+    n_pruning = 100,
     allowed_time = 300,
     n_scenarios = n_scenarios,
     n_warmup = n_warmup
@@ -159,7 +155,7 @@ function reg_discount(
 
     # Solve
     reg_sddp = RegularizedPrimalSDDP(primal_sddp, dual_sddp, τ, mixing, "Regularized SDDP with Discount rule (van Ackooij et al. (2019))") # useless dual model, to change
-    primal_models = solve_discount!(reg_sddp, hdm, V, x₀; n_iter=n_iter, verbose=verbose, τ=τ, n_prunning = n_prunning, allowed_time = allowed_time, n_scenarios = n_scenarios, n_warmup = n_warmup)
+    primal_models = solve_discount!(reg_sddp, hdm, V, x₀; n_iter=n_iter, verbose=verbose, τ=τ, n_pruning = n_pruning, allowed_time = allowed_time, n_scenarios = n_scenarios, n_warmup = n_warmup)
 
     return (
         primal_cuts=V,
@@ -234,22 +230,18 @@ function warmup!(
     x₀::Array;
     verbose::Int=1,
     n_warmup = 50,
-    n_prunning = 200,
+    n_pruning = 200,
 )
     Ξ = uncertainties(hdm)
-    primal_trajectories = Array{Matrix{Float64}}(undef, n_prunning)
+    primal_trajectories = Array{Matrix{Float64}}(undef, n_pruning)
     for i in 1:n_warmup
-        j = mod(i, n_prunning) + 1
+        j = mod(i, n_pruning) + 1
         scenario = sample(Ξ)
         # Primal
         primal_trajectories[j] = forward_pass(solver, hdm, primal_models, scenario, x₀)
         backward_pass!(solver, hdm, primal_models, primal_trajectories[j], V)
         if  j == 1
-            V_ref = realcopy.(V)
-            V = [PolyhedralFunction(length(x₀), V[1](x₀)) for t in 1:length(V)]
-            for k in length(primal_trajectories)
-                prunning!(V, V_ref, primal_trajectories[k])
-            end
+            V = pruning(V, primal_trajectories)
         end
 
         if (verbose > 0) && (mod(i, verbose) == 0) && (n_warmup > 0)
