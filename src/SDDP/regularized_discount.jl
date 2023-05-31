@@ -254,5 +254,5 @@ function warmup!(
     if n_warmup > 0
         println("Mean bundle size after warmup: $(mean(ncuts(V[t]) for t in 1:horizon(hdm)))")
     end
-    return V,D
+    return V
 end
