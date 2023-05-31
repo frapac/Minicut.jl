@@ -136,7 +136,8 @@ function reg_forward_pass!(
         end
         # Regularization level ; Adaptative combination between lb and ub depending on the relative gap
         relative_gap = abs((ub - lb)/lb)
-        mixing = 0.5/t # Implementation details p.25 [van Ackooij et al. (2019)]
+        mixing = min(relative_gap, 1)
+        #mixing = 0.5/t # Implementation details p.25 [van Ackooij et al. (2019)]
         ℓ = mixing * lb + (1.0 - mixing) * ub
         model = stage_model(hdm, t)
         xₜ = next!(Regsddp, model, V, xₜ, xi, ℓ, τ, t, horizon(hdm))

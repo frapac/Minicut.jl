@@ -28,7 +28,10 @@ function solve_discount!(
     end
 
     # Warmup
-    warmup!(solver.primal_sddp, primal_models, hdm, V, x₀; verbose=verbose, n_warmup = n_warmup)
+    if n_warmup > 0
+        println("Warming up")
+        V = warmup!(solver.primal_sddp, primal_models, hdm, V, x₀; verbose=verbose, n_warmup = n_warmup)
+    end
 
     if verbose > 0
         @printf(" %4s %15s %15s %10s\n", "-"^4, "-"^15, "-"^15, "-"^10)
@@ -41,9 +44,6 @@ function solve_discount!(
     ub = .0
     for i in 1:n_iter
         j = mod(i, n_pruning) + 1 # Current index since last pruning
-        if  j == n_pruning
-            V = pruning(V, primal_trajectories)
-        end
         ub =  montecarlo(solver.primal_sddp, hdm, primal_models, n_scenarios, x₀, Ξ) 
         scenario = sample(Ξ)
         # Primal
@@ -53,6 +53,9 @@ function solve_discount!(
             lb = V[1](x₀)
             gap = (ub - lb) / abs(lb)
             @printf(" %4i %15.6e %15.6e %10.3f\n", i, lb, ub, 100 * gap)
+        end
+        if  j == 1
+            V = pruning(V, primal_trajectories)
         end
         # Check if allowed time is over
         if time() - tic > allowed_time
@@ -101,7 +104,7 @@ function discount_forward_pass!(
         else
             ub_t = lb
         end
-        # Regularization level ; Adaptative combination between lb and ub_t depending on the relative gap
+        # RegularizationD level ; Adaptative combination between lb and ub_t depending on the relative gap
         γₜ = 0.5 / t
         mixing = γₜ*lb  + (1-γₜ)*ub_t
         ℓ = mixing * lb + (1.0 - mixing) * ub_t
@@ -144,7 +147,7 @@ function reg_discount(
     valid_statuses=[MOI.OPTIMAL],
     n_pruning = 100,
     allowed_time = 300,
-    n_scenarios = n_scenarios,
+    n_scenarios = 1000,
     n_warmup = n_warmup
 )
     (seed >= 0) && Random.seed!(seed)
@@ -243,7 +246,6 @@ function warmup!(
         if  j == 1
             V = pruning(V, primal_trajectories)
         end
-
         if (verbose > 0) && (mod(i, verbose) == 0) && (n_warmup > 0)
             lb = V[1](x₀)
             @printf(" %4i %15.6e \n", i, lb)
@@ -252,4 +254,5 @@ function warmup!(
     if n_warmup > 0
         println("Mean bundle size after warmup: $(mean(ncuts(V[t]) for t in 1:horizon(hdm)))")
     end
+    return V,D
 end

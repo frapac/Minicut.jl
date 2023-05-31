@@ -51,11 +51,24 @@ function realcopy(V::PolyhedralFunction)
 end
 
 
-#=
-Given two vectors of polyhedral functions V and new_V, given a trajectory,
-add to new_V the active cuts of V at the trajectory
-=#
+#= 
+Given a vector of polyhedral functions V and an array of trajectories, return a new polyhedral function new_V with the cuts of V which are active at some trial point.
+=# 
 
+function pruning(V::Vector{PolyhedralFunction}, trajectories::Vector{Matrix{Float64}}; verbose = 0, ε = 1e-6)
+    T = length(V)
+    nx = dimension(V[1])
+    new_V = [PolyhedralFunction(nx) for t in 1:T]
+    if verbose > 0
+        n_cuts = [ncuts(V[t]) for t in 1:T]
+    end
+    pruning!(V, trajectories, new_V, T; ε = ε)
+    if verbose > 0
+        new_n_cuts = [ncuts(new_V[t]) for t in 1:T]
+        println("Nb of cuts deleted after pruning: $(sum(n_cuts - new_n_cuts))")
+    end
+    return new_V
+end
 
 function pruning!(V::Vector{PolyhedralFunction}, trajectories::Vector{Array{Float64,2}}, new_V::Vector{PolyhedralFunction}, T::Int; ε=1e-6)
     for t in 1:T
@@ -74,24 +87,4 @@ function pruning!(V::Vector{PolyhedralFunction}, trajectories::Vector{Array{Floa
             add_cut!(new_V[t], V[t].λ[i, :], V[t].γ[i])
         end
     end
-end
-
-
-#= 
-Given a vector of polyhedral functions V and an array of trajectories, return a new polyhedral function new_V with the cuts of V which are active at some trial point.
-=# 
-
-function pruning(V::Vector{PolyhedralFunction}, trajectories::Vector{Matrix{Float64}}; verbose = 0, ε = 1e-6)
-    T = length(V)
-    nx = dimension(V[1])
-    new_V = [PolyhedralFunction(nx) for t in 1:T]
-    if verbose > 0
-        n_cuts = [ncuts(V[t]) for t in 1:T]
-    end
-    pruning!(V, trajectories, new_V, T; ε = ε)
-    if verbose > 0
-        new_n_cuts = [ncuts(new_V[t]) for t in 1:T]
-        println("Nb of cuts deleted after pruning: $(sum(n_cuts - new_n_cuts))")
-    end
-    return new_V
 end

@@ -28,22 +28,29 @@ function solve2!(
         @printf("\n")
     end
 
-    warmup!(solver, primal_models, dual_models, hdm, V, D, x₀; verbose=verbose, n_warmup = n_warmup, n_pruning = n_pruning)
+    if n_warmup > 0
+        println("Warming up")
+        V, D = warmup!(solver, primal_models, dual_models, hdm, V, D, x₀; verbose=verbose, n_warmup = n_warmup, n_pruning = n_pruning)
+    end 
 
     if verbose > 0
         @printf(" %4s %15s %15s %10s\n", "-"^4, "-"^15, "-"^15, "-"^10)
         @printf(" %4s %15s %15s %10s\n", "#it", "LB", "UB", "Gap (%)")
     end
-    # Run
+    
+    # Timers
     tic = time()
+
+    # Run
     ub = Inf
     ub, p₀ = fenchel_transform(solver.dual_sddp, D[1], x₀)
     primal_trajectories = Array{Matrix{Float64}}(undef, n_pruning)
     dual_trajectories = Array{Matrix{Float64}}(undef, n_pruning)
+
     for i in 1:n_iter
         scenario = sample(Ξ)
         j = mod(i, n_pruning) + 1 # Current index since last pruning
-        if mod(i, n_cycle) == 0 # Update upper bounds via dual sddp
+        if mod(i, n_cycle) == 1 # Update upper bounds via dual sddp
             # Primal
             primal_trajectories[j] = reg_forward_pass(solver, hdm, primal_models, dual_models, V, D, scenario, x₀, τ)
             backward_pass!(solver.primal_sddp, hdm, primal_models, primal_trajectories[j], V)
@@ -59,9 +66,9 @@ function solve2!(
             backward_pass!(solver.dual_sddp, hdm, dual_models, dual_trajectories[j], D)
             ub, p₀ = fenchel_transform(solver.dual_sddp, D[1], x₀)
         end
-        if  j == n_pruning
-            V = pruning(V,  primal_trajectories)
-            D = pruning(D, dual_trajectories)
+        if  j == 1
+            V = pruning(V, primal_trajectories; verbose = verbose)
+            D = pruning(D, dual_trajectories; verbose = verbose)
         end
         if (verbose > 0) && (mod(i, verbose) == 0)
             lb = V[1](x₀)
@@ -161,10 +168,8 @@ function warmup!(
         backward_pass!(solver.dual_sddp, hdm, dual_models, dual_trajectories[j], D)
         ub, p₀ = fenchel_transform(solver.dual_sddp, D[1], x₀)
         if  j == 1
-            for j in length(primal_trajectories)
-                V = pruning(V,  primal_trajectories)
-                D = pruning(D, dual_trajectories)
-            end
+            V = pruning(V,  primal_trajectories, verbose = verbose)
+            D = pruning(D, dual_trajectories, verbose = verbose)
         end
         if (verbose > 0) && (mod(i, verbose) == 0) && (n_warmup > 0)
             lb = V[1](x₀)
@@ -174,6 +179,7 @@ function warmup!(
     end
     if n_warmup > 0
         println("Mean primal bundle size after warmup: $(mean(ncuts(V[t]) for t in 1:horizon(hdm)))")
-        println("Mean dual bundle size after warmup  : $(mean(ncuts(V[t]) for t in 1:horizon(hdm)))")
+        println("Mean dual bundle size after warmup  : $(mean(ncuts(D[t]) for t in 1:horizon(hdm)))")
     end 
+    return V, D
 end
