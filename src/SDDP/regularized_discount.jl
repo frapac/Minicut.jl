@@ -12,7 +12,7 @@ function solve_discount!(
     τ=1e8,
     n_pruning = 100,
     allowed_time = 300,
-    n_scenarios = 1000,
+    n_simus = 1000,
     n_warmup = 50,
 )
     (verbose > 0) && header()
@@ -44,7 +44,7 @@ function solve_discount!(
     ub = .0
     for i in 1:n_iter
         j = mod(i, n_pruning) + 1 # Current index since last pruning
-        ub =  montecarlo(solver.primal_sddp, hdm, primal_models, n_scenarios, x₀, Ξ) 
+        ub =  montecarlo(solver.primal_sddp, hdm, primal_models, n_simus, x₀, Ξ) 
         scenario = sample(Ξ)
         # Primal
         primal_trajectories[j] = discount_forward_pass(solver, hdm, primal_models, ub,  V,  scenario, x₀, τ)
@@ -147,7 +147,7 @@ function reg_discount(
     valid_statuses=[MOI.OPTIMAL],
     n_pruning = 100,
     allowed_time = 300,
-    n_scenarios = 1000,
+    n_simus = 1000,
     n_warmup = n_warmup
 )
     (seed >= 0) && Random.seed!(seed)
@@ -158,7 +158,7 @@ function reg_discount(
 
     # Solve
     reg_sddp = RegularizedPrimalSDDP(primal_sddp, dual_sddp, τ, mixing, "Regularized SDDP with Discount rule (van Ackooij et al. (2019))") # useless dual model, to change
-    primal_models = solve_discount!(reg_sddp, hdm, V, x₀; n_iter=n_iter, verbose=verbose, τ=τ, n_pruning = n_pruning, allowed_time = allowed_time, n_scenarios = n_scenarios, n_warmup = n_warmup)
+    primal_models = solve_discount!(reg_sddp, hdm, V, x₀; n_iter=n_iter, verbose=verbose, τ=τ, n_pruning = n_pruning, allowed_time = allowed_time, n_simus = n_simus, n_warmup = n_warmup)
 
     return (
         primal_cuts=V,
@@ -175,28 +175,28 @@ function montecarlo(
     sddp::SDDP,
     hdm::HazardDecisionModel,
     models::Vector{JuMP.Model},
-    n_scenarios::Int,
+    n_simus::Int,
     initial_state::Vector{Float64},
     Ξ::Vector{DiscreteRandomVariable{Float64}}
 )
-    scenarios = Minicut.sample(Ξ, n_scenarios)
+    scenarios = Minicut.sample(Ξ, n_simus)
     costs = Minicut.simulate!(sddp, hdm, models, initial_state, scenarios)
-    return mean(costs) + 1.96 * std(costs) / sqrt(n_scenarios)
+    return mean(costs) + 1.96 * std(costs) / sqrt(n_simus)
 end
 
 function montecarlo(
     sddp::SDDP,
     hdm::HazardDecisionModel,
     models::Vector{JuMP.Model},
-    n_scenarios::Int,
+    n_simus::Int,
     initial_state::Vector{Float64},
     Ξ::Vector{DiscreteRandomVariable{Float64}},
     t::Int
 )
     @assert t < horizon(hdm) 
-    scenarios = Minicut.sample(Ξ[t+1:horizon(hdm)], n_scenarios)
+    scenarios = Minicut.sample(Ξ[t+1:horizon(hdm)], n_simus)
     costs = Minicut.simulate!(sddp, hdm, models, initial_state, scenarios, t)
-    return mean(costs) + 1.96 * std(costs) / sqrt(n_scenarios)
+    return mean(costs) + 1.96 * std(costs) / sqrt(n_simus)
 end
 
 function simulate!(
@@ -209,11 +209,11 @@ function simulate!(
 )
     @assert t0 < horizon(hdm)
     Ξ = uncertainties(hdm)
-    n_scenarios = length(uncertainty_scenario)
+    n_simus = length(uncertainty_scenario)
     n_states = number_states(hdm)
     xₜ = zeros(n_states)
-    costs = zeros(n_scenarios)
-    for k in 1:n_scenarios
+    costs = zeros(n_simus)
+    for k in 1:n_simus
         xₜ .= initial_state
         for t in t0:horizon(hdm)
             ξ = uncertainty_scenario[k][:, t]

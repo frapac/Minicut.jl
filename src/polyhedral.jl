@@ -46,11 +46,6 @@ function remove_cut(V::PolyhedralFunction, cut_index::Int)
     return PolyhedralFunction(V.λ[to_keep, :], V.γ[to_keep])
 end
 
-function realcopy(V::PolyhedralFunction)
-    return PolyhedralFunction(V.λ, V.γ)
-end
-
-
 #= 
 Given a vector of polyhedral functions V and an array of trajectories, return a new polyhedral function new_V with the cuts of V which are active at some trial point.
 =# 

@@ -6,6 +6,9 @@ using LinearAlgebra, Statistics
 using JuMP
 using Dualization
 
+# Temporary, used in collect.jl
+using DataFrames, CSV
+
 export HazardDecisionModel
 export PolyhedralFunction
 
@@ -20,5 +23,6 @@ include("SDDP/generic_sddp.jl")
 include("SDDP/regularized_sddp2.jl")
 include("SDDP/regularized_discount.jl")
 include("SDDP/regularized_minub.jl")
+include("collect.jl")
 
 end # module

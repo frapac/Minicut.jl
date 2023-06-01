@@ -8,9 +8,9 @@ const GRB_ENV = Gurobi.Env(output_flag = 0)
 
 include("../examples/brazilian/brazilian.jl")
 
-@testset "Test variants upperbounds (if any) on Brazilian Problem" begin 
+@testset "Regularized Brazilian" begin
     Random.seed!(2713)
-    nscenarios = 10
+    n_scenarios = 10
     T = 5
     lower_bound = -1e9
     max_iter = 1000
@@ -18,12 +18,42 @@ include("../examples/brazilian/brazilian.jl")
     n_cycle = 10
     n_pruning = 100
     allowed_time = 120
-    n_scenarios = 1000 # for initial ub by MonteCarlo
+    n_simus = 1000 # for initial ub by MonteCarlo
+    n_warmup = 0
+    n_simus = 1000
+    verbose = 0
+    
+    bhm = BrazilianHydroModel(; T=T, nscen=n_scenarios)
+    nx = Minicut.number_states(bhm)
+    x0 = bhm.x0   
+    
+    optimizer = () -> Gurobi.Optimizer(GRB_ENV)
+    
+    # Solve with regularized SDDP 2
+    V1 = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T]
+    D = [PolyhedralFunction(nx, lower_bound) for t in 1:T]
+    reg_sol2 = Minicut.regularizedsddp2(bhm, x0, optimizer, V1, D; n_iter=max_iter, verbose=verbose, τ=1e8, lower_bound=lower_bound, n_cycle=n_cycle, n_pruning = n_pruning, allowed_time = allowed_time, n_warmup = n_warmup, valid_statuses = [MOI.OPTIMAL, MOI.LOCALLY_SOLVED])
+    objective_primal2 = reg_sol2.lower_bound
+    objective_dual2 = reg_sol2.upper_bound
+    println("Regularized SDDP gap.............: $((abs(objective_dual2 - objective_primal2) / abs(objective_dual2))*100)% ")    
+end
+
+@testset "Test variants upperbounds (if any) on Brazilian Problem" begin 
+    Random.seed!(2713)
+    n_scenarios = 10
+    T = 5
+    lower_bound = -1e9
+    max_iter = 1000
+    n_simus = 100
+    n_cycle = 10
+    n_pruning = 100
+    allowed_time = 120
+    n_simus = 1000 # for initial ub by MonteCarlo
     n_warmup = 0
     n_simus = 1000
     verbose = 0
 
-    bhm = BrazilianHydroModel(; T=T, nscen=nscenarios)
+    bhm = BrazilianHydroModel(; T=T, nscen=n_scenarios)
     nx = Minicut.number_states(bhm)
     x0 = bhm.x0   
 
@@ -43,7 +73,7 @@ include("../examples/brazilian/brazilian.jl")
     # Solve with regularized SDDP with Discount Rule for ub
     optimizer = () -> Gurobi.Optimizer(GRB_ENV)
     V1 = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T]
-    sol_wellington = Minicut.reg_discount(bhm, x0, optimizer, V1; n_iter=max_iter, verbose=verbose, τ=1e8, n_pruning = n_pruning, allowed_time = allowed_time, n_scenarios = n_simus, n_warmup = n_warmup, valid_statuses = [MOI.OPTIMAL, MOI.LOCALLY_SOLVED])
+    sol_wellington = Minicut.reg_discount(bhm, x0, optimizer, V1; n_iter=max_iter, verbose=verbose, τ=1e8, n_pruning = n_pruning, allowed_time = allowed_time, n_simus = n_simus, n_warmup = n_warmup, valid_statuses = [MOI.OPTIMAL, MOI.LOCALLY_SOLVED])
     objective_wellington = sol_wellington.lower_bound
     println("Discount rule statistical gap.....: $((abs(stat_ub - objective_wellington) / abs(stat_ub))*100)% ")
 
@@ -66,7 +96,7 @@ end
 
 @testset "Comparison upperbounds on Brazilan Hydrothermal problem" begin
     Random.seed!(2713)
-    nscenarios = 20
+    n_scenarios = 20
     T = 15
     lower_bound = -1e9
     max_iter = 1000
@@ -78,7 +108,7 @@ end
     n_simus = 1000
     verbose = 50
 
-    bhm = BrazilianHydroModel(; T=T, nscen=nscenarios)
+    bhm = BrazilianHydroModel(; T=T, nscen=n_scenarios)
     nx = Minicut.number_states(bhm)
     x0 = bhm.x0   
 
@@ -98,7 +128,7 @@ end
     V2 = Minicut.realcopy.(V1)
     optimizer2 = () -> Gurobi.Optimizer(GRB_ENV)
     solver2 = Minicut.SDDP(optimizer2, [MOI.OPTIMAL, MOI.OTHER_ERROR]) 
-    bhm2 = BrazilianHydroModel(; T=T, nscen=nscenarios)
+    bhm2 = BrazilianHydroModel(; T=T, nscen=n_scenarios)
     models2 = Minicut.solve!(solver2, bhm2, V2, bhm2.x0; n_iter=max_iter, verbose=verbose)
     scenarios2 = Minicut.sample(Minicut.uncertainties(bhm2), n_simus)
     costs2 = Minicut.simulate!(solver2, bhm2, models2, x0, scenarios2)
@@ -109,7 +139,7 @@ end
     # Solve with Wellington sddp, uses the result of SDDP as warmup
     optimizer = () -> Gurobi.Optimizer(GRB_ENV)
     V1 = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T]
-    sol_wellington = Minicut.reg_discount(bhm, x0, optimizer, V1; n_iter=max_iter, verbose=verbose, τ=1e8, n_pruning = n_pruning, allowed_time = allowed_time, n_scenarios = n_simus, n_warmup = n_warmup, valid_statuses = [MOI.OPTIMAL, MOI.LOCALLY_SOLVED])
+    sol_wellington = Minicut.reg_discount(bhm, x0, optimizer, V1; n_iter=max_iter, verbose=verbose, τ=1e8, n_pruning = n_pruning, allowed_time = allowed_time, n_simus = n_simus, n_warmup = n_warmup, valid_statuses = [MOI.OPTIMAL, MOI.LOCALLY_SOLVED])
     objective_wellington = sol_wellington.lower_bound
     println("Discount rule statistical gap: $((abs(stat_ub2 - objective_wellington) / abs(stat_ub2))*100)% ")
 
@@ -179,12 +209,12 @@ end
 #     @testset "SDDP algorithm" begin
 #         models = Minicut.solve!(sddp, wdm, V, x0; n_iter=10, verbose=0)
 
-#         n_scenarios = 1000
-#         scenarios = Minicut.sample(Ξ, n_scenarios)
+#         n_simus = 1000
+#         scenarios = Minicut.sample(Ξ, n_simus)
 #         costs = Minicut.simulate!(sddp, wdm, models, x0, scenarios)
 
 #         lb = V[1](x0)
-#         ub = mean(costs) + 1.96 * std(costs) / sqrt(n_scenarios)
+#         ub = mean(costs) + 1.96 * std(costs) / sqrt(n_simus)
 #         # Test convergence of SDDP
 #         # TODO: check we satisfy this bound for any random seed
 #         @test abs(ub - lb) / abs(ub) <= 0.02
@@ -233,7 +263,7 @@ end
 
 # @testset "Test reg SDDP brazilian" begin
 #     Random.seed!(2713)
-#     nscenarios = 10
+#     n_scenarios = 10
 #     T = 5
 #     lower_bound = -1e9
 #     max_iter = 300
@@ -243,7 +273,7 @@ end
 #     n_pruning = 100
 #     allowed_time = 600
 
-#     bhm = BrazilianHydroModel(; T=T, nscen=nscenarios)
+#     bhm = BrazilianHydroModel(; T=T, nscen=n_scenarios)
 #     nx = Minicut.number_states(bhm)
 #     x0 = bhm.x0
 #     # Initialize value functions.

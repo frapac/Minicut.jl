@@ -5,13 +5,14 @@ function solve2!(
     V::Array{PolyhedralFunction},
     D::Array{PolyhedralFunction},
     x₀::Array;
-    n_iter=100,
+    allowed_time = 300,
     n_cycle = 20,
-    verbose::Int=1,
-    τ=1e8,
+    n_iter=100,
     n_pruning = 100,
     n_warmup = 50,
-    allowed_time = 300,
+    τ=1e8,
+    verbose::Int=1,
+    saving_data= true
 )
     (verbose > 0) && header()
     Ξ = uncertainties(hdm)
@@ -19,6 +20,18 @@ function solve2!(
     primal_models = build_stage_models(solver.primal_sddp, hdm, V)
     dual_models = build_stage_models(solver.dual_sddp, hdm, D)
 
+    # Saving run data in a DataFrame pb_data, df_timers, df_ub, df_lb, df_traj
+    run_data, run_timers, run_ub, run_lb = init_data(solver.primal_sddp,
+    primal_models,
+    hdm,
+    V,
+    x₀,
+    allowed_time,
+    n_cycle,
+    n_iter,
+    n_pruning,
+    n_warmup,
+    )
     # Warmup
     
     if verbose > 0
@@ -39,7 +52,7 @@ function solve2!(
     end
     
     # Timers
-    tic = time()
+    time_mainrun = time()
 
     # Run
     ub = Inf
@@ -48,32 +61,57 @@ function solve2!(
     dual_trajectories = Array{Matrix{Float64}}(undef, n_pruning)
 
     for i in 1:n_iter
+        tic_iter = time()
         scenario = sample(Ξ)
         j = mod(i, n_pruning) + 1 # Current index since last pruning
         if mod(i, n_cycle) == 1 # Update upper bounds via dual sddp
             # Primal
+            tic = time()
             primal_trajectories[j] = reg_forward_pass(solver, hdm, primal_models, dual_models, V, D, scenario, x₀, τ)
+            run_timers[i, :time_primal_forward] += time() - tic 
+            tic = time()
             backward_pass!(solver.primal_sddp, hdm, primal_models, primal_trajectories[j], V)
+            run_timers[i, :time_primal_backward] += time() - tic 
             # Dual
+            tic = time()
             dual_trajectories[j] = forward_pass(solver.dual_sddp, hdm, dual_models, scenario, p₀)
+            run_timers[i, :time_dual_forward] += time() - tic 
+            tic = time()
             backward_pass!(solver.dual_sddp, hdm, dual_models, dual_trajectories[j], D)
+            run_timers[i, :time_dual_backward] += time() - tic 
             ub, p₀ = fenchel_transform(solver.dual_sddp, D[1], x₀)
+
         else # Update upper bounds using primal cuts = dual trajectory
             # Primal
+            tic = time()
             primal_trajectories[j] = reg_forward_pass(solver, hdm, primal_models, dual_models, V, D, scenario, x₀, τ)
+            run_timers[i, :time_primal_forward] += time() - tic 
+            tic = time()
             dual_trajectories[j] = backward_pass!(solver.primal_sddp, hdm, primal_models, primal_trajectories[j], V)
+            run_timers[i, :time_primal_backward] += time() - tic 
+            run_timers[i, :time_dual_forward] += 0.0 
             # Dual
             backward_pass!(solver.dual_sddp, hdm, dual_models, dual_trajectories[j], D)
             ub, p₀ = fenchel_transform(solver.dual_sddp, D[1], x₀)
         end
         if  j == 1
+            tic = time()
             V = pruning(V, primal_trajectories; verbose = verbose)
             D = pruning(D, dual_trajectories; verbose = verbose)
+            run_timers[i, :time_pruning] += time() - tic 
         end
         if (verbose > 0) && (mod(i, verbose) == 0)
             lb = V[1](x₀)
             gap = (ub - lb) / abs(lb)
             @printf(" %4i %15.6e %15.6e %10.3f\n", i, lb, ub, 100 * gap)
+        end
+        run_timers[i, :time_iter] += time() - tic_iter
+        
+        if saving_data
+            for t in 1:horizon(hdm)
+                run_ub[i,t+1] = fenchel_transform(solver.dual_sddp, D[t], dual_trajectories[j][:, t])[1]
+                run_lb[i,t+1] = V[t](primal_trajectories[j][:, t]) # not lb, just values along trajectories
+            end
         end
         # Check if allowed time is over
         if time() - tic > allowed_time
@@ -87,11 +125,18 @@ function solve2!(
         lb = V[1](x₀)
         @printf(" %4s %15s %15s %10s\n\n", "-"^4, "-"^15, "-"^15, "-"^10)
         @printf("Max number of iterations.........: %7i\n", n_iter)
-        @printf("Total wall-clock time (sec)..: %7.3f\n\n", time() - tic)
+        @printf("Main loop wall-clock time (sec)..: %7.3f\n\n", time() - time_mainrun)
         @printf("Lower-bound.....: %15.8e\n", lb)
         @printf("Upper-bound.....: %15.8e\n", ub)
         @printf("Final Gap.......: %13.5f %%\n", 100.0 * (ub - lb) / abs(lb))
     end
+    #run_data, run_timers, run_ub, run_lb, run_traj
+    if saving_data 
+        CSV.write(lowercase(split(name(hdm))[1])*"_rundata.csv", run_data) 
+        CSV.write(lowercase(split(name(hdm))[1])*"_runtimers.csv", run_timers) 
+        CSV.write(lowercase(split(name(hdm))[1])*"_runub.csv", run_ub) 
+        CSV.write(lowercase(split(name(hdm))[1])*"_runlb.csv", run_lb) 
+    end 
     return (primal_models, dual_models)
 end
 
