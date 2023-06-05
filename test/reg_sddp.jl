@@ -47,7 +47,7 @@ end
     n_simus = 100
     n_cycle = 10
     n_pruning = 100
-    allowed_time = 120
+    allowed_time = 60
     n_simus = 1000 # for initial ub by MonteCarlo
     n_warmup = 0
     n_simus = 1000
@@ -83,79 +83,87 @@ end
     reg_sol2 = Minicut.regularizedsddp2(bhm, x0, optimizer, V1, D; n_iter=max_iter, verbose=verbose, τ=1e8, lower_bound=lower_bound, n_cycle=n_cycle, n_pruning = n_pruning, allowed_time = allowed_time, n_warmup = n_warmup, valid_statuses = [MOI.OPTIMAL, MOI.LOCALLY_SOLVED])
     objective_primal2 = reg_sol2.lower_bound
     objective_dual2 = reg_sol2.upper_bound
-    println("Regularized SDDP gap.............: $((abs(objective_dual2 - objective_primal2) / abs(objective_dual2))*100)% ")
+    println("Regularized SDDP gap..............: $((abs(objective_dual2 - objective_primal2) / abs(objective_dual2))*100)% ")
+
+    V3 = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T]
+    D3 = [PolyhedralFunction(nx, lower_bound) for t in 1:T]
+    reg_sol3 = Minicut.regularizedsddp2(bhm, x0, optimizer, V3, D3; n_iter=max_iter, verbose=verbose, τ=1e8, lower_bound=lower_bound, n_cycle=n_cycle, n_pruning = n_pruning, allowed_time = allowed_time, n_warmup = n_warmup, valid_statuses = [MOI.OPTIMAL, MOI.LOCALLY_SOLVED])
+    objective_primal3 = reg_sol3.lower_bound
+    objective_dual3 = reg_sol3.upper_bound
+    println("Regularized SDDP 3 gap............: $((abs(objective_dual3 - objective_primal3) / abs(objective_dual3))*100)% ")
 
     println("Objective function after $(allowed_time)s or $(max_iter) additional iterations of")
     println("   SDDP.........: $objective_sddp")
     println("   Wellington...: $objective_wellington")
     println("   Reg. SDDP 2..: $objective_primal2")
+    println("   Reg. SDDP 3..: $objective_primal3")
 
     @test abs(objective_sddp - objective_wellington)/abs(objective_sddp) * 100 < stat_relgap + 1
     @test abs(objective_sddp - objective_primal2)/abs(objective_sddp) * 100 < stat_relgap + 1
 end
 
-@testset "Comparison upperbounds on Brazilan Hydrothermal problem" begin
-    Random.seed!(2713)
-    n_scenarios = 20
-    T = 15
-    lower_bound = -1e9
-    max_iter = 1000
-    n_simus = 100
-    n_cycle = 10
-    n_pruning = 200
-    allowed_time = 300 # for initial ub by MonteCarlo
-    n_warmup = 250
-    n_simus = 1000
-    verbose = 50
+# @testset "Comparison upperbounds on Brazilan Hydrothermal problem" begin
+#     Random.seed!(2713)
+#     n_scenarios = 20
+#     T = 15
+#     lower_bound = -1e9
+#     max_iter = 1000
+#     n_simus = 100
+#     n_cycle = 10
+#     n_pruning = 200
+#     allowed_time = 300 # for initial ub by MonteCarlo
+#     n_warmup = 250
+#     n_simus = 1000
+#     verbose = 50
 
-    bhm = BrazilianHydroModel(; T=T, nscen=n_scenarios)
-    nx = Minicut.number_states(bhm)
-    x0 = bhm.x0   
+#     bhm = BrazilianHydroModel(; T=T, nscen=n_scenarios)
+#     nx = Minicut.number_states(bhm)
+#     x0 = bhm.x0   
 
-    # Solve with SDDP until "saturation"
-    optimizer = () -> Gurobi.Optimizer(GRB_ENV)
-    solver = Minicut.SDDP(optimizer, [MOI.OPTIMAL, MOI.OTHER_ERROR])
-    V1 = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T] # V will contain sddp iters until saturation
-    models = Minicut.solve!(solver, bhm, V1, x0; n_iter=max_iter, verbose=verbose)
-    # Simulation
-    scenarios = Minicut.sample(Minicut.uncertainties(bhm), n_simus)
-    costs = Minicut.simulate!(solver, bhm, models, x0, scenarios)
-    stat_ub = mean(costs) + 1.96 * std(costs) / sqrt(n_simus)
-    objective_sddp = V1[1](x0)
-    println("SDDP statistical gap: $((abs(stat_ub - objective_sddp) / abs(stat_ub))*100)% ")
+#     # Solve with SDDP until "saturation"
+#     optimizer = () -> Gurobi.Optimizer(GRB_ENV)
+#     solver = Minicut.SDDP(optimizer, [MOI.OPTIMAL, MOI.OTHER_ERROR])
+#     V1 = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T] # V will contain sddp iters until saturation
+#     models = Minicut.solve!(solver, bhm, V1, x0; n_iter=max_iter, verbose=verbose)
+#     # Simulation
+#     scenarios = Minicut.sample(Minicut.uncertainties(bhm), n_simus)
+#     costs = Minicut.simulate!(solver, bhm, models, x0, scenarios)
+#     stat_ub = mean(costs) + 1.96 * std(costs) / sqrt(n_simus)
+#     objective_sddp = V1[1](x0)
+#     println("SDDP statistical gap: $((abs(stat_ub - objective_sddp) / abs(stat_ub))*100)% ")
 
-    # We keep trying to do SDDP
-    V2 = Minicut.realcopy.(V1)
-    optimizer2 = () -> Gurobi.Optimizer(GRB_ENV)
-    solver2 = Minicut.SDDP(optimizer2, [MOI.OPTIMAL, MOI.OTHER_ERROR]) 
-    bhm2 = BrazilianHydroModel(; T=T, nscen=n_scenarios)
-    models2 = Minicut.solve!(solver2, bhm2, V2, bhm2.x0; n_iter=max_iter, verbose=verbose)
-    scenarios2 = Minicut.sample(Minicut.uncertainties(bhm2), n_simus)
-    costs2 = Minicut.simulate!(solver2, bhm2, models2, x0, scenarios2)
-    stat_ub2 = mean(costs2) + 1.96 * std(costs2) / sqrt(n_simus)
-    objective_sddp2 = V2[1](x0)
-    println("Keep trying SDDP statistical gap: $((abs(stat_ub2 - objective_sddp2) / abs(stat_ub2))*100)% ")
+#     # We keep trying to do SDDP
+#     V2 = Minicut.realcopy.(V1)
+#     optimizer2 = () -> Gurobi.Optimizer(GRB_ENV)
+#     solver2 = Minicut.SDDP(optimizer2, [MOI.OPTIMAL, MOI.OTHER_ERROR]) 
+#     bhm2 = BrazilianHydroModel(; T=T, nscen=n_scenarios)
+#     models2 = Minicut.solve!(solver2, bhm2, V2, bhm2.x0; n_iter=max_iter, verbose=verbose)
+#     scenarios2 = Minicut.sample(Minicut.uncertainties(bhm2), n_simus)
+#     costs2 = Minicut.simulate!(solver2, bhm2, models2, x0, scenarios2)
+#     stat_ub2 = mean(costs2) + 1.96 * std(costs2) / sqrt(n_simus)
+#     objective_sddp2 = V2[1](x0)
+#     println("Keep trying SDDP statistical gap: $((abs(stat_ub2 - objective_sddp2) / abs(stat_ub2))*100)% ")
 
-    # Solve with Wellington sddp, uses the result of SDDP as warmup
-    optimizer = () -> Gurobi.Optimizer(GRB_ENV)
-    V1 = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T]
-    sol_wellington = Minicut.reg_discount(bhm, x0, optimizer, V1; n_iter=max_iter, verbose=verbose, τ=1e8, n_pruning = n_pruning, allowed_time = allowed_time, n_simus = n_simus, n_warmup = n_warmup, valid_statuses = [MOI.OPTIMAL, MOI.LOCALLY_SOLVED])
-    objective_wellington = sol_wellington.lower_bound
-    println("Discount rule statistical gap: $((abs(stat_ub2 - objective_wellington) / abs(stat_ub2))*100)% ")
+#     # Solve with Wellington sddp, uses the result of SDDP as warmup
+#     optimizer = () -> Gurobi.Optimizer(GRB_ENV)
+#     V1 = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T]
+#     sol_wellington = Minicut.reg_discount(bhm, x0, optimizer, V1; n_iter=max_iter, verbose=verbose, τ=1e8, n_pruning = n_pruning, allowed_time = allowed_time, n_simus = n_simus, n_warmup = n_warmup, valid_statuses = [MOI.OPTIMAL, MOI.LOCALLY_SOLVED])
+#     objective_wellington = sol_wellington.lower_bound
+#     println("Discount rule statistical gap: $((abs(stat_ub2 - objective_wellington) / abs(stat_ub2))*100)% ")
 
-    # Solve with regularized SDDP 2, uses the result of SDDP as n_warmup
-    V1 = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T]
-    D = [PolyhedralFunction(nx, lower_bound) for t in 1:T]
-    reg_sol2 = Minicut.regularizedsddp2(bhm, x0, optimizer, V1, D; n_iter=max_iter, verbose=verbose, τ=1e8, lower_bound=lower_bound, n_cycle=n_cycle, n_pruning = n_pruning, allowed_time = allowed_time, n_warmup = n_warmup, valid_statuses = [MOI.OPTIMAL, MOI.LOCALLY_SOLVED])
-    objective_primal2 = reg_sol2.lower_bound
-    objective_dual2 = reg_sol2.upper_bound
-    println("Regularized SDDP statistical gap: $((abs(objective_dual2 - objective_primal2) / abs(objective_dual2))*100)% ")
+#     # Solve with regularized SDDP 2, uses the result of SDDP as n_warmup
+#     V1 = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T]
+#     D = [PolyhedralFunction(nx, lower_bound) for t in 1:T]
+#     reg_sol2 = Minicut.regularizedsddp2(bhm, x0, optimizer, V1, D; n_iter=max_iter, verbose=verbose, τ=1e8, lower_bound=lower_bound, n_cycle=n_cycle, n_pruning = n_pruning, allowed_time = allowed_time, n_warmup = n_warmup, valid_statuses = [MOI.OPTIMAL, MOI.LOCALLY_SOLVED])
+#     objective_primal2 = reg_sol2.lower_bound
+#     objective_dual2 = reg_sol2.upper_bound
+#     println("Regularized SDDP statistical gap: $((abs(objective_dual2 - objective_primal2) / abs(objective_dual2))*100)% ")
 
-    println("Objective function after $(allowed_time)s or $(max_iter) additional iterations of")
-    println("   SDDP.........: $objective_sddp2")
-    println("   Wellington...: $objective_wellington")
-    println("   Reg. SDDP 2..: $objective_primal2")
-end
+#     println("Objective function after $(allowed_time)s or $(max_iter) additional iterations of")
+#     println("   SDDP.........: $objective_sddp2")
+#     println("   Wellington...: $objective_wellington")
+#     println("   Reg. SDDP 2..: $objective_primal2")
+# end
 
 # @testset "Regularized SDDP: WaterDamModel" begin
 #     optimizer = JuMP.optimizer_with_attributes(

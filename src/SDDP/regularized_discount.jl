@@ -12,7 +12,7 @@ function solve_discount!(
     τ=1e8,
     n_pruning = 100,
     allowed_time = 300,
-    n_simus = 1000,
+    n_simus = 10,
     n_warmup = 50,
 )
     (verbose > 0) && header()

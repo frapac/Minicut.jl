@@ -97,7 +97,7 @@ function solve2!(
         if  j == 1
             tic = time()
             V = pruning(V, primal_trajectories; verbose = verbose)
-            D = pruning(D, dual_trajectories; verbose = verbose)
+            #D = pruning(D, dual_trajectories; verbose = verbose)
             run_timers[i, :time_pruning] += time() - tic 
         end
         if (verbose > 0) && (mod(i, verbose) == 0)
@@ -109,7 +109,8 @@ function solve2!(
         
         if saving_data
             for t in 1:horizon(hdm)
-                run_ub[i,t+1] = fenchel_transform(solver.dual_sddp, D[t], dual_trajectories[j][:, t])[1]
+                #run_ub[i,t+1] = fenchel_transform(solver.dual_sddp, D[t], dual_trajectories[j][:, t])[1]
+                run_ub[i,t+1] = fenchel_transform(solver.dual_sddp, D[t], primal_trajectories[j][:, t])[1]
                 run_lb[i,t+1] = V[t](primal_trajectories[j][:, t]) # not lb, just values along trajectories
             end
         end
@@ -214,7 +215,7 @@ function warmup!(
         ub, p₀ = fenchel_transform(solver.dual_sddp, D[1], x₀)
         if  j == 1
             V = pruning(V,  primal_trajectories, verbose = verbose)
-            D = pruning(D, dual_trajectories, verbose = verbose)
+            #D = pruning(D, dual_trajectories, verbose = verbose) # Don't prune the dual anymore as it deteriorates primal upper bounds
         end
         if (verbose > 0) && (mod(i, verbose) == 0) && (n_warmup > 0)
             lb = V[1](x₀)

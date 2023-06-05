@@ -54,7 +54,7 @@ function backward_pass!(
     T = length(models)
     Ξ = uncertainties(hdm)
     @assert length(V) == T
-    trajectory = zeros(size(primal_trajectory))
+    trajectory = zeros(size(primal_trajectory)) # Will contain dual trajectory of slopes
     # Final time
     trajectory[:, T] .= previous!(sddp, models[T], primal_trajectory[:, T], Ξ[T], V[T])
     # Reverse pass
@@ -64,6 +64,41 @@ function backward_pass!(
     end
     return trajectory
 end
+
+# Backward pass several trajectories at once
+function backward_pass!(
+    sddp::AbstractSDDP,
+    hdm::HazardDecisionModel,
+    models::Vector{JuMP.Model},
+    primal_trajectories::Array{Array{Float64,2}},
+    V::Vector{PolyhedralFunction},
+)
+    T = length(models)
+    Ξ = uncertainties(hdm)
+    @assert length(V) == T
+    trajectories_tmp = zeros(Float64, size(primal_trajectories[1], 1), size(primal_trajectories[1], 2), length(primal_trajectories))
+    
+
+    for j in 1:length(primal_trajectories)
+        # Final time
+        trajectories_tmp[:, T, j] = previous!(sddp, models[T], primal_trajectories[j][:, T], Ξ[T], V[T])
+    end
+    @inbounds for t in reverse(1:T-1)
+        # Reverse pass
+        synchronize!(sddp, models[t], V[t+1])
+        for j in 1:length(primal_trajectories)
+            trajectories_tmp[:, t, j] = previous!(sddp, models[t], primal_trajectories[j][:, t], Ξ[t], V[t])
+        end
+    end
+    # Ugly way to convert 3D array into array of matrices
+    trajectories = Array{Array{Float64, 2}}
+    for j in 1:length(primal_trajectories)
+        push!(trajectories, trajectories_tmp[:,:,j])
+    end
+
+    return trajectories
+end
+
 
 #=
     CUPPS pass

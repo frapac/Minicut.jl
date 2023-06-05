@@ -1,2 +1,2 @@
 horizon,n_x,n_u,allowed_time,n_cycle,n_iter,n_pruning,n_warmup,time_warmup
-5,4,144,120,10,1000,100,0,0.0
+5,4,144,60,10,1000,100,0,0.0

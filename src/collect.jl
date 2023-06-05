@@ -36,8 +36,6 @@ function init_data(
     df_timers[!, :time_dual_forward] .= 0.0
     df_timers[!, :time_dual_backward] .= 0.0
     df_timers[!, :time_pruning] .= 0.0
-    df_timers[!, :upper_bound] .= +Inf
-    df_timers[!, :lower_bound] .= -Inf
 
     df_ub = DataFrame(Inf*ones(Float64, (n_iter, T)), :auto)
     insertcols!(df_ub, 1, :iteration => 1:n_iter)
