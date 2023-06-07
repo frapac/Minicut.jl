@@ -6,6 +6,7 @@ using Minicut
 
 include("models.jl")
 include("polyhedral.jl")
+include("plots.jl")
 include("extensive_formulation.jl")
 include("sddp.jl")
 include("dualization.jl")

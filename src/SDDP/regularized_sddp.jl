@@ -115,7 +115,8 @@ function reg_forward_pass!(
     uncertainty_scenario::Array{Float64,2},
     initial_state::Vector{Float64},
     trajectory::Array{Float64,2},
-    τ::Float64
+    τ::Float64,
+    upperbounds::Array{Float64}
 )
     Ξ = uncertainties(hdm)
     xₜ = copy(initial_state)
@@ -134,6 +135,7 @@ function reg_forward_pass!(
         else
             ub = lb
         end
+        upperbounds[t] = ub
         # Regularization level ; Adaptative combination between lb and ub depending on the relative gap
         relative_gap = abs((ub - lb)/lb)
         mixing = min(relative_gap, 1)
@@ -159,7 +161,8 @@ function reg_forward_pass(
 )
     horizon = size(uncertainty_scenario, 2)
     primal_trajectory = fill(0.0, length(initial_state), horizon + 1)
-    return reg_forward_pass!(Regsddp, hdm, primal_models, dual_models, V, D, uncertainty_scenario, initial_state, primal_trajectory, τ)
+    upperbounds = zeros(Float64, horizon)
+    return reg_forward_pass!(Regsddp, hdm, primal_models, dual_models, V, D, uncertainty_scenario, initial_state, primal_trajectory, τ, upperbounds), upperbounds
 end
 
 function solve!(
@@ -220,7 +223,7 @@ function solve!(
     for i in 1:n_iter
         scenario = sample(Ξ)
         # Primal
-        primal_trajectory = reg_forward_pass(solver, hdm, primal_models, dual_models, V, D, scenario, x₀, τ)
+        primal_trajectory, ub_tmp = reg_forward_pass(solver, hdm, primal_models, dual_models, V, D, scenario, x₀, τ)
         backward_pass!(solver.primal_sddp, hdm, primal_models, primal_trajectory, V)
         # Dual
         dual_trajectory = forward_pass(solver.dual_sddp, hdm, dual_models, scenario, p₀)

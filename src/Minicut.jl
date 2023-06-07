@@ -8,6 +8,8 @@ using Dualization
 
 # Temporary, used in collect.jl
 using DataFrames, CSV
+# plots.jl
+using Plots
 
 export HazardDecisionModel
 export PolyhedralFunction
@@ -24,5 +26,6 @@ include("SDDP/regularized_sddp2.jl")
 include("SDDP/regularized_discount.jl")
 include("SDDP/regularized_minub.jl")
 include("collect.jl")
+include("plots.jl")
 
 end # module

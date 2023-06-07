@@ -69,7 +69,7 @@ function solve3!(
             upperbounds!(ubs, Ξ, )
         # Compute forward passes with updated upperbounds
         for k in 1:n_batch
-            primal_trajectories[k] = reg_forward_pass(solver, hdm, primal_models, dual_models, V, D, scenarios[k], x₀, τ)
+            primal_trajectories[k] = reg_forward_pass(solver, hdm, primal_models, dual_models, V, D, scenarios[k], x₀, τ, ubs)
         end
         # Compute backward passes
         dual_trajectories = backward_pass!(solver.primal_sddp, hdm, primal_models, primal_trajectories, V)
@@ -155,6 +155,59 @@ function solve3!(
         CSV.write(lowercase(split(name(hdm))[1])*"_runlb.csv", run_lb) 
     end 
     return (primal_models, dual_models)
+end
+
+function reg_forward_pass!(
+    Regsddp::RegularizedPrimalSDDP,
+    hdm::HazardDecisionModel,
+    primal_models::Vector{JuMP.Model},
+    dual_models::Vector{JuMP.Model},
+    V::Vector{PolyhedralFunction},
+    D::Vector{PolyhedralFunction},
+    uncertainty_scenario::Array{Float64,2},
+    initial_state::Vector{Float64},
+    trajectory::Array{Float64,2},
+    τ::Float64,
+    ubs::Array{Float64, 2}
+)
+    Ξ = uncertainties(hdm)
+    xₜ = copy(initial_state)
+    trajectory[:, 1] .= xₜ
+    for (t, ξₜ₊₁) in enumerate(eachcol(uncertainty_scenario))
+        xi = collect(ξₜ₊₁)
+        # Lower-bound.
+        
+        lb = lowerbound(Regsddp.primal_sddp, primal_models[t], xₜ, xi)
+
+        # Upper-bound.
+        ub = ubs[t, ξ]
+        # Regularization level ; Adaptative combination between lb and ub depending on the relative gap
+        relative_gap = abs((ub - lb)/lb)
+        mixing = min(relative_gap, 1)
+        #mixing = 0.5/t # Implementation details p.25 [van Ackooij et al. (2019)]
+        ℓ = mixing * lb + (1.0 - mixing) * ub
+        model = stage_model(hdm, t)
+        xₜ = next!(Regsddp, model, V, xₜ, xi, ℓ, τ, t, horizon(hdm))
+        trajectory[:, t+1] .= xₜ
+    end
+    return trajectory
+end
+
+function reg_forward_pass(
+    Regsddp::RegularizedPrimalSDDP,
+    hdm::HazardDecisionModel,
+    primal_models::Vector{JuMP.Model},
+    dual_models::Vector{JuMP.Model},
+    V::Vector{PolyhedralFunction},
+    D::Vector{PolyhedralFunction},
+    uncertainty_scenario::Array{Float64,2},
+    initial_state::Vector{Float64},
+    τ::Float64,
+    ubs::Array{Float64, 2}
+)
+    horizon = size(uncertainty_scenario, 2)
+    primal_trajectory = fill(0.0, length(initial_state), horizon + 1)
+    return reg_forward_pass!(Regsddp, hdm, primal_models, dual_models, V, D, uncertainty_scenario, initial_state, primal_trajectory, τ, ubs)
 end
 
 # Helper function
