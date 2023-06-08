@@ -65,8 +65,6 @@ function solve3!(
     for i in 1:n_iter
         tic_iter = time()
         scenarios = sample(Ξ, n_batch)
-        # Compute updated upperbounds if needed 
-            upperbounds!(ubs, Ξ, )
         # Compute forward passes with updated upperbounds
         for k in 1:n_batch
             primal_trajectories[k] = reg_forward_pass(solver, hdm, primal_models, dual_models, V, D, scenarios[k], x₀, τ, ubs)
@@ -77,6 +75,7 @@ function solve3!(
             backward_pass!(solver.dual_sddp, hdm, dual_models, dual_trajectories, D)
         end
 
+        
 
 
 
@@ -156,6 +155,78 @@ function solve3!(
     end 
     return (primal_models, dual_models)
 end
+
+
+function cost_tj!(
+    hdm,
+    Ξ,
+    cum_costs, # (i,t) matrix of size nb_scenarios x T containing cum cost for scenario i at time t
+    scenarios,
+    t,
+    j,
+    ubs
+)  
+    # Grouping the scenarios with common history that go through (t,j)
+    list_scenar, hist = histories_tj(bhm, scenarios, Ξ, t, j)
+    for k in 1:length(hist)
+        weights = [weight(hdm, list_scenar, Ξ)]
+        remaining_costs = [cum_costs[i,T] - cum_costs[i, t] for i in list_scenar]
+        futur_expectation = sum(weights[i]*remaining_costs[i]  for i in 1:length(list_scenar)) /sum(weights)
+        for i in list_scenar[k]
+            ubs[t,j] = min(ubs[t,j], cum_costs[i,t] + futur_expectation)
+        end
+    end
+    
+end
+
+# Checks whether path history already seen, if not, add new path history. Then add the scenario index to associated path history
+function histories_tj(
+    hdm::HazardDecisionModel,
+    scenarios::Array{Matrix{T}},
+    Ξ::Vector{DiscreteRandomVariable{T}},
+    t::Int,
+    j::Int
+)
+    list_scenar = [] # How to define empty list of array such that length(.) = 0 ? I have to define this untyped list or unknown size otherwise length() returns error
+    hist = Array{Vector{Int64}}
+    for i in 1:size(scenarios,2)
+        path = scenario_path(hdm, scenarios[i], Ξ)
+        if path[t] == j
+            test = true
+            k = 1
+            while test
+                if path[1:t] == hist[k]
+                    push!(list_scenar[k], i)
+                    test = false
+                end
+                k += 1
+                if k > length(list_scenar)
+                    push!(list_scenar, [i])
+                    test = false 
+                end
+            end
+        end
+    end
+    return list_scenar, hist
+end
+
+function update_ubs!(
+    hdm,
+    ubs,
+    scenarios,
+    cum_costs,
+)
+    T = horizon(hdm)
+    n_scenarios = size(scenarios, 2)
+
+    for i in 1:n_scenarios
+        for (t,j) in enumerate(scenario_path(scenarios[i]))
+            ubs[t,j] = min(ubs[t,j], cost_tj( ))
+        end
+    end
+
+end
+
 
 function reg_forward_pass!(
     Regsddp::RegularizedPrimalSDDP,

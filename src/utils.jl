@@ -35,6 +35,26 @@ function find_outcome(v::DiscreteRandomVariable, x::Vector)
     return idx
 end
 
+function scenario_path(hdm::HazardDecisionModel, scenario::Matrix{T}, distributions::Vector{DiscreteRandomVariable{T}})
+    """
+        Given a scenario, outputs the path (=sequence of couples (t,j)) from the root the associated leaf of couples
+    """
+    T = horizon(hdm)
+    path = zeros(Int64, T)
+    for t in 1:horizon(hdm)
+        path[t] = find_outcome(distributions[t], scenario[:,t])
+    end
+    return path
+end
+
+function weight(hdm::HazardDecisionModel, scenario::Matrix{T}, distributions::Vector{DiscreteRandomVariable{T}})
+    """
+        Outputs the weight of a given scenario in the scenario tree
+    """
+    path = scenario_path(hdm, scenario, distributions)
+    return prod((distributions[t].weights)[path[t]] for t in 1:horizon(hdm))
+end
+
 function sample!(vs::Vector{DiscreteRandomVariable{T}}, scenario::Matrix{T}) where T
     for (t, v) in enumerate(vs)
         scenario[:, t] .= rand(v)
