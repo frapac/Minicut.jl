@@ -167,7 +167,7 @@ function cost_tj!(
     ubs
 )  
     # Grouping the scenarios with common history that go through (t,j)
-    list_scenar, hist = histories_tj(bhm, scenarios, Ξ, t, j)
+    list_scenar, hist = histories_tj(hdm, scenarios, Ξ, t, j)
     for k in 1:length(hist)
         weights = [weight(hdm, list_scenar, Ξ)]
         remaining_costs = [cum_costs[i,T] - cum_costs[i, t] for i in list_scenar]
@@ -186,24 +186,26 @@ function histories_tj(
     Ξ::Vector{DiscreteRandomVariable{T}},
     t::Int,
     j::Int
-)
-    list_scenar = [] # How to define empty list of array such that length(.) = 0 ? I have to define this untyped list or unknown size otherwise length() returns error
-    hist = Array{Vector{Int64}}
-    for i in 1:size(scenarios,2)
+) where T
+    list_scenar = Vector{Vector{Int64}}(undef, 0)
+    hist = Vector{Vector{Int64}}(undef, 0)
+    for i in 1:length(scenarios)
         path = scenario_path(hdm, scenarios[i], Ξ)
         if path[t] == j
             test = true
             k = 1
             while test
-                if path[1:t] == hist[k]
+                if k > length(list_scenar) # if this history not seen before, add it
+                    push!(hist, path[1:t])
+                    push!(list_scenar, [i])
+                    test = false 
+                end 
+                ## PB ICI
+                if length(list_scenar[k]) > 1 && path[1:t] == hist[k]
                     push!(list_scenar[k], i)
                     test = false
                 end
                 k += 1
-                if k > length(list_scenar)
-                    push!(list_scenar, [i])
-                    test = false 
-                end
             end
         end
     end
@@ -226,7 +228,6 @@ function update_ubs!(
     end
 
 end
-
 
 function reg_forward_pass!(
     Regsddp::RegularizedPrimalSDDP,
@@ -312,7 +313,7 @@ function regularizedsddp3(
 
     # Solve
     reg_sddp = RegularizedPrimalSDDP(primal_sddp, dual_sddp, τ, mixing, "Regularized Primal SDDP")
-    primal_models, dual_models = 3!(reg_sddp, hdm, V, D, x₀; n_iter=n_iter, n_cycle=n_cycle, verbose=verbose, τ=τ, n_pruning = n_pruning, allowed_time=allowed_time, n_warmup = n_warmup)
+    primal_models, dual_models = solve3!(reg_sddp, hdm, V, D, x₀; n_iter=n_iter, n_cycle=n_cycle, verbose=verbose, τ=τ, n_pruning = n_pruning, allowed_time=allowed_time, n_warmup = n_warmup)
 
     # Get upper-bound
     ub, _ = fenchel_transform(dual_sddp, D[1], x₀)
@@ -325,47 +326,4 @@ function regularizedsddp3(
         dual_models=dual_models,
         upper_bound=ub,
     )
-end
-
-
-function warmup!(
-    solver::RegularizedPrimalSDDP,
-    primal_models,
-    dual_models,
-    hdm::HazardDecisionModel,
-    V::Array{PolyhedralFunction},
-    D::Array{PolyhedralFunction},
-    x₀::Array;
-    verbose::Int=1,
-    n_warmup = 50,
-    n_pruning = 100
-)
-    Ξ = uncertainties(hdm)
-    ub = Inf
-    primal_trajectories = Array{Matrix{Float64}}(undef, n_pruning)
-    dual_trajectories = Array{Matrix{Float64}}(undef, n_pruning)
-    for i in 1:n_warmup
-        scenario = sample(Ξ)
-        j = mod(i, n_pruning) + 1
-        # Primal
-        primal_trajectories[j] = forward_pass(solver.primal_sddp, hdm, primal_models, scenario, x₀)
-        dual_trajectories[j] = backward_pass!(solver.primal_sddp, hdm, primal_models, primal_trajectories[j], V)
-        # Dual
-        backward_pass!(solver.dual_sddp, hdm, dual_models, dual_trajectories[j], D)
-        ub, p₀ = fenchel_transform(solver.dual_sddp, D[1], x₀)
-        if  j == 1
-            V = pruning(V,  primal_trajectories, verbose = verbose)
-            #D = pruning(D, dual_trajectories, verbose = verbose) # Don't prune the dual anymore as it deteriorates primal upper bounds
-        end
-        if (verbose > 0) && (mod(i, verbose) == 0) && (n_warmup > 0)
-            lb = V[1](x₀)
-            gap = (ub - lb) / abs(lb)
-            @printf(" %4i %15.6e %15.6e %10.3f\n", i, lb, ub, 100 * gap)
-        end
-    end
-    if n_warmup > 0
-        println("Mean primal bundle size after warmup: $(mean(ncuts(V[t]) for t in 1:horizon(hdm)))")
-        println("Mean dual bundle size after warmup  : $(mean(ncuts(D[t]) for t in 1:horizon(hdm)))")
-    end 
-    return V, D
 end
