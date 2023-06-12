@@ -23,9 +23,8 @@ include("SDDP/generic_sddp.jl")
 
 # Temporary
 include("SDDP/regularized_sddp2.jl")
-include("SDDP/regularized_sddp3.jl")
+include("SDDP/normal_sddp.jl")
 include("SDDP/regularized_discount.jl")
-include("SDDP/regularized_minub.jl")
 include("collect.jl")
 include("plots.jl")
 

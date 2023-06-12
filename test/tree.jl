@@ -21,6 +21,11 @@ include("../examples/brazilian/brazilian.jl")
     @test Minicut.scenario_path(bhm, scenarios[3], Ξ)[1:6] == Minicut.scenario_path(bhm, fake_scenario, Ξ)[1:6]
 
     @test Minicut.weight(bhm, ξ, Ξ) ≈ 2.048*1e-19
-    println(Minicut.histories_tj(bhm, scenarios, Ξ, 6, 4)) ### PB
+
+    # The scenarios 3 and 11 (= fake_scenario) have common history up to t=6, scenario 7 also go through same node (6,4) but has a different history
+    @test Minicut.histories_tj(bhm, scenarios, Ξ, 6, 4) == ([[3, 11], [7]], [[1, 41, 35, 18, 32, 4], [1, 9, 50, 16, 39, 4]])
+
+
+    #    @test Minicut.cost_tj!(bhm, scenarios, )
     
 end

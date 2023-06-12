@@ -1,9 +1,15 @@
 
-function solve3!(
-    solver::RegularizedPrimalSDDP,
+struct NormalSDDP <: AbstractSDDP
+    primal_sddp::SDDP
+    mixing::Float64
+    name::String
+end 
+
+
+function solve!(
+    solver::NormalSDDP,
     hdm::HazardDecisionModel,
     V::Array{PolyhedralFunction},
-    D::Array{PolyhedralFunction},
     x₀::Array;
     allowed_time = 300,
     n_cycle = 20,
@@ -13,13 +19,13 @@ function solve3!(
     n_warmup = 50,
     τ=1e8,
     verbose::Int=1,
-    saving_data= true
+    saving_data= true,
+    upper_bound = 1e9
 )
     (verbose > 0) && header()
     Ξ = uncertainties(hdm)
 
     primal_models = build_stage_models(solver.primal_sddp, hdm, V)
-    dual_models = build_stage_models(solver.dual_sddp, hdm, D)
 
     # Saving run data in a DataFrame pb_data, df_timers, df_ub, df_lb, df_traj
     run_data, run_timers, run_ub, run_lb = init_data(solver.primal_sddp,
@@ -44,7 +50,7 @@ function solve3!(
 
     if n_warmup > 0
         println("Warming up")
-        V, D = warmup!(solver, primal_models, dual_models, hdm, V, D, x₀; verbose=verbose, n_warmup = n_warmup, n_pruning = n_pruning)
+        V = warmup!(solver, primal_models, hdm, V, x₀; verbose=verbose, n_warmup = n_warmup, n_pruning = n_pruning)
     end 
 
     if verbose > 0
@@ -56,60 +62,19 @@ function solve3!(
     time_mainrun = time()
 
     # Run
-    ub = Inf
-    ub, p₀ = fenchel_transform(solver.dual_sddp, D[1], x₀)
     primal_trajectories = Array{Matrix{Float64}}(undef, n_batch)
-    dual_trajectories = Array{Matrix{Float64}}(undef, n_batch)
-    ubs = Inf*ones(Float64, length(Ξ), horizon(hdm))
+    ubs = upper_bound*ones(Float64, horizon(hdm), n_batch) # One upperbound per node of the scenario tree
 
     for i in 1:n_iter
         tic_iter = time()
         scenarios = sample(Ξ, n_batch)
-        # Compute forward passes with updated upperbounds
+        # Compute regularized forward passes, update upperbounds at the end of it
         for k in 1:n_batch
-            primal_trajectories[k] = reg_forward_pass(solver, hdm, primal_models, dual_models, V, D, scenarios[k], x₀, τ, ubs)
+            primal_trajectories[k] = normal_forward_pass!(solver, hdm, primal_models, V, scenarios[k], x₀, τ, ubs)
         end
         # Compute backward passes
-        dual_trajectories = backward_pass!(solver.primal_sddp, hdm, primal_models, primal_trajectories, V)
-        if mod(i,n_cycle) == 1 
-            backward_pass!(solver.dual_sddp, hdm, dual_models, dual_trajectories, D)
-        end
-
-        
-
-
-
-
-
-
-        if mod(i, n_cycle) == 1 # Update upper bounds via dual sddp
-            # Primal
-            tic = time()
-            primal_trajectories[j] = reg_forward_pass(solver, hdm, primal_models, dual_models, V, D, scenario, x₀, τ)
-            run_timers[i, :time_primal_forward] += time() - tic 
-            tic = time()
-            backward_pass!(solver.primal_sddp, hdm, primal_models, primal_trajectories[j], V)
-            run_timers[i, :time_primal_backward] += time() - tic 
-            # Dual
-            tic = time()
-            dual_trajectories[j] = forward_pass(solver.dual_sddp, hdm, dual_models, scenario, p₀)
-            run_timers[i, :time_dual_forward] += time() - tic 
-            tic = time()
-            backward_pass!(solver.dual_sddp, hdm, dual_models, dual_trajectories, D)
-            run_timers[i, :time_dual_backward] += time() - tic 
-            ub, p₀ = fenchel_transform(solver.dual_sddp, D[1], x₀)
-
-        else # Update only primal, save the cuts as future dual trajectories
-            # Primal
-            tic = time()
-            primal_trajectories[j] = reg_forward_pass(solver, hdm, primal_models, dual_models, V, D, scenario, x₀, τ)
-            run_timers[i, :time_primal_forward] += time() - tic 
-            tic = time()
-            dual_trajectories[j] = backward_pass!(solver.primal_sddp, hdm, primal_models, primal_trajectories[j], V)
-            run_timers[i, :time_primal_backward] += time() - tic 
-            run_timers[i, :time_dual_forward] += 0.0 
-            
-        end
+        backward_pass!(solver.primal_sddp, hdm, primal_models, primal_trajectories, V)
+        # Pruning    
         if  j == 1
             tic = time()
             V = pruning(V, primal_trajectories; verbose = verbose)
@@ -124,9 +89,7 @@ function solve3!(
         
         if saving_data
             for t in 1:horizon(hdm)
-                # run_ub[i,t+1] = fenchel_transform(solver.dual_sddp, D[t], dual_trajectories[j][:, t])[1]
-                run_ub[i,t+1] = fenchel_transform(solver.dual_sddp, D[t], primal_trajectories[j][:, t])[1]
-                run_lb[i,t+1] = V[t](primal_trajectories[j][:, t]) # not lb, just values along trajectories
+                run_lb[i,t+1] = V[t](primal_trajectories[j][:, t]) # not lb on opt values, but lb on this traj
             end
         end
         # Check if allowed time is over
@@ -149,7 +112,7 @@ function solve3!(
     #run_data, run_timers, run_ub, run_lb, run_traj
     if saving_data 
         CSV.write(lowercase(split(name(hdm))[1])*"_rundata.csv", run_data) 
-        CSV.write(lowercase(split(name(hdm))[1])*"_runtimers.csv", run_timers) 
+        CSV.write(lowercase(split(name(hdm))[1])*"_runtimers.csv", run_timers)
         CSV.write(lowercase(split(name(hdm))[1])*"_runub.csv", run_ub) 
         CSV.write(lowercase(split(name(hdm))[1])*"_runlb.csv", run_lb) 
     end 
@@ -158,25 +121,24 @@ end
 
 
 function cost_tj!(
-    hdm,
-    Ξ,
-    cum_costs, # (i,t) matrix of size nb_scenarios x T containing cum cost for scenario i at time t
-    scenarios,
-    t,
-    j,
-    ubs
-)  
+    hdm::HazardDecisionModel,
+    Ξ::Vector{DiscreteRandomVariable{T}},
+    cum_costs::Matrix{T}, # (i,t) matrix of size nb_scenarios x T containing cum cost for scenario i at time t
+    scenarios::Array{Matrix{T}},
+    t::Int,
+    j::Int,
+    ubs::Matrix{T}
+)  where T
     # Grouping the scenarios with common history that go through (t,j)
     list_scenar, hist = histories_tj(hdm, scenarios, Ξ, t, j)
     for k in 1:length(hist)
         weights = [weight(hdm, list_scenar, Ξ)]
-        remaining_costs = [cum_costs[i,T] - cum_costs[i, t] for i in list_scenar]
+        remaining_costs = [cum_costs[i,T+1] - cum_costs[i, t+1] for i in list_scenar]
         futur_expectation = sum(weights[i]*remaining_costs[i]  for i in 1:length(list_scenar)) /sum(weights)
         for i in list_scenar[k]
-            ubs[t,j] = min(ubs[t,j], cum_costs[i,t] + futur_expectation)
+            ubs[t,j] = min(ubs[t,j], cum_costs[i,t+1] + futur_expectation)
         end
     end
-    
 end
 
 # Checks whether path history already seen, if not, add new path history. Then add the scenario index to associated path history
@@ -195,13 +157,13 @@ function histories_tj(
             test = true
             k = 1
             while test
-                if k > length(list_scenar) # if this history not seen before, add it
+                if k > length(list_scenar) # If this history has not been seen before, add it
                     push!(hist, path[1:t])
                     push!(list_scenar, [i])
                     test = false 
                 end 
-                ## PB ICI
-                if length(list_scenar[k]) > 1 && path[1:t] == hist[k]
+                ## Otherwise, history has been seen, add it to associated list 
+                if (path[1:t] == hist[k]) && ([i] != list_scenar[k])
                     push!(list_scenar[k], i)
                     test = false
                 end
@@ -213,65 +175,81 @@ function histories_tj(
 end
 
 function update_ubs!(
-    hdm,
-    ubs,
-    scenarios,
-    cum_costs,
-)
-    T = horizon(hdm)
-    n_scenarios = size(scenarios, 2)
-
-    for i in 1:n_scenarios
-        for (t,j) in enumerate(scenario_path(scenarios[i]))
-            ubs[t,j] = min(ubs[t,j], cost_tj( ))
-        end
+    hdm::HazardDecisionModel,
+    Ξ::Vector{DiscreteRandomVariable{T}},
+    cum_costs::Matrix{T},
+    scenarios::Array{Matrix{T}},
+    J::Vector{Int},
+    ubs::Matrix{T}
+) where T
+    for t in 1:T
+        cost_tj!(hdm, Ξ, cum_costs, scenarios, t, J[t], ubs)
     end
-
 end
 
 function reg_forward_pass!(
-    Regsddp::RegularizedPrimalSDDP,
+    normal_sddp::NormalSDDP,
     hdm::HazardDecisionModel,
     primal_models::Vector{JuMP.Model},
-    dual_models::Vector{JuMP.Model},
     V::Vector{PolyhedralFunction},
-    D::Vector{PolyhedralFunction},
     uncertainty_scenario::Array{Float64,2},
     initial_state::Vector{Float64},
     trajectory::Array{Float64,2},
     τ::Float64,
-    ubs::Array{Float64, 2}
+    ubs::Array{Float64, 2},
+    cum_costs::Array{Float64,2}, 
+    J::Vector{Int}
 )
     Ξ = uncertainties(hdm)
     xₜ = copy(initial_state)
     trajectory[:, 1] .= xₜ
     for (t, ξₜ₊₁) in enumerate(eachcol(uncertainty_scenario))
-        xi = collect(ξₜ₊₁)
-        # Lower-bound.
-        
-        lb = lowerbound(Regsddp.primal_sddp, primal_models[t], xₜ, xi)
-
-        # Upper-bound.
-        ub = ubs[t, ξ]
-        # Regularization level ; Adaptative combination between lb and ub depending on the relative gap
-        relative_gap = abs((ub - lb)/lb)
-        mixing = min(relative_gap, 1)
-        #mixing = 0.5/t # Implementation details p.25 [van Ackooij et al. (2019)]
+        ξ = collect(ξₜ₊₁)
+        # Lower-bound
+        lb = lowerbound(normal_sddp.primal_sddp, primal_models[t], xₜ, ξ)
+        # Upper-bound
+        j = find_outcome(Ξ[t], ξ)
+        J[t] = j
+        ub = ubs[t, j]
+        #relative_gap = abs((ub - lb)/lb)
+        #mixing = min(relative_gap, 1)
+        mixing = 0.5/t # Implementation details p.25 [van Ackooij et al. (2019)]
         ℓ = mixing * lb + (1.0 - mixing) * ub
         model = stage_model(hdm, t)
-        xₜ = next!(Regsddp, model, V, xₜ, xi, ℓ, τ, t, horizon(hdm))
+        xₜ,cost = next!(normal_sddp, model, V, xₜ, ξ, ℓ, τ, t, horizon(hdm))
+        cum_costs[t+1] = cum_costs[t] + cost
         trajectory[:, t+1] .= xₜ
     end
     return trajectory
 end
 
-function reg_forward_pass(
-    Regsddp::RegularizedPrimalSDDP,
+function next!(
+    normalsddp::NormalSDDP,
+    model::JuMP.Model,
+    V::Vector{PolyhedralFunction},
+    xₜ::Vector{Float64},
+    ξₜ₊₁::Vector{Float64},
+    ℓ::Float64,
+    τ::Float64,
+    t::Int,
+    T::Int,
+)
+    JuMP.set_optimizer(model, normalsddp.primal_sddp.optimizer)
+    solve_stage_problem!(normalsddp.primal_sddp, model, V, xₜ, ξₜ₊₁, ℓ, τ, t, T)
+    if t < T
+        return value.(model[_CURRENT_STATE]), objective_value(model) - value(model[_VALUE_FUNCTION])
+    else 
+        return value.(model[_CURRENT_STATE]), objective_value(model)
+    end
+end
+
+
+
+function normal_forward_pass!(
+    normalsddp::NormalSDDP,
     hdm::HazardDecisionModel,
     primal_models::Vector{JuMP.Model},
-    dual_models::Vector{JuMP.Model},
     V::Vector{PolyhedralFunction},
-    D::Vector{PolyhedralFunction},
     uncertainty_scenario::Array{Float64,2},
     initial_state::Vector{Float64},
     τ::Float64,
@@ -279,51 +257,43 @@ function reg_forward_pass(
 )
     horizon = size(uncertainty_scenario, 2)
     primal_trajectory = fill(0.0, length(initial_state), horizon + 1)
-    return reg_forward_pass!(Regsddp, hdm, primal_models, dual_models, V, D, uncertainty_scenario, initial_state, primal_trajectory, τ, ubs)
+    cum_costs = fill(0.0, length(initial_state), horizon + 1)
+    J = zeros(Int64, horizon)
+    primal_trajectory = reg_forward_pass!(normalsddp, hdm, primal_models, V, uncertainty_scenario, initial_state, primal_trajectory, τ, ubs, cum_costs, J)
+    # Added step compared to regularized_sddp where the bounds are update during the forward step
+    update_ubs!(hdm, uncertainties(hdm), cum_costs, uncertainty_scenario, J, ubs)
 end
 
 # Helper function
-function regularizedsddp3(
+function normalsddp(
     hdm::HazardDecisionModel,
     x₀::Array,
     optimizer,
-    V::Array{PolyhedralFunction},
-    D::Array{PolyhedralFunction};
+    V::Array{PolyhedralFunction};
     mixing=1.0,
     τ=1e8,
     seed=0,
     n_iter=500,
     verbose::Int=1,
-    lower_bound=-1e6,
-    lip_ub=+1e10,
-    lip_lb=-1e10,
     valid_statuses=[MOI.OPTIMAL],
     n_cycle= 10,
     n_pruning = 100,
     allowed_time = 300,
     n_warmup = 50,
+    ub = 1e9,
 )
     (seed >= 0) && Random.seed!(seed)
-    nx, T = number_states(hdm), horizon(hdm)
-
 
     # Solvers
     primal_sddp = SDDP(optimizer, valid_statuses)
-    dual_sddp = DualSDDP(optimizer, valid_statuses, lip_lb, lip_ub)
 
     # Solve
-    reg_sddp = RegularizedPrimalSDDP(primal_sddp, dual_sddp, τ, mixing, "Regularized Primal SDDP")
-    primal_models, dual_models = solve3!(reg_sddp, hdm, V, D, x₀; n_iter=n_iter, n_cycle=n_cycle, verbose=verbose, τ=τ, n_pruning = n_pruning, allowed_time=allowed_time, n_warmup = n_warmup)
-
-    # Get upper-bound
-    ub, _ = fenchel_transform(dual_sddp, D[1], x₀)
+    normal_sddp = NormalSDDP(primal_sddp, mixing, "Normal Solution SDDP [van Ackooij et al. (2019)]")
+    primal_models = solve!(normal_sddp, hdm, V,  x₀; n_iter=n_iter, n_cycle=n_cycle, verbose=verbose, τ=τ, n_pruning = n_pruning, allowed_time=allowed_time, n_warmup = n_warmup, upper_bound = ub)
 
     return (
         primal_cuts=V,
         primal_models=primal_models,
         lower_bound=V[1](x₀),
-        dual_cuts=D,
-        dual_models=dual_models,
-        upper_bound=ub,
     )
 end

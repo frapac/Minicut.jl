@@ -12,7 +12,6 @@ end
 
 introduce(regsddp::RegularizedPrimalSDDP) = regsddp.name
 
-# Should change later: currently it re adds a ρ variable everytime
 function solve_stage_problem!(sddp::SDDP, model::JuMP.Model, V::Vector{PolyhedralFunction}, xₜ::Vector{Float64}, ξₜ₊₁::Vector{Float64}, ℓ::Float64, τ::Float64, t, T)
     fix.(model[_PREVIOUS_STATE], xₜ, force=true)
     fix.(model[_UNCERTAINTIES], ξₜ₊₁, force=true)
