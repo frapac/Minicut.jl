@@ -28,12 +28,14 @@ function solve!(
     primal_models = build_stage_models(solver.primal_sddp, hdm, V)
 
     # Saving run data in a DataFrame pb_data, df_timers, df_ub, df_lb, df_traj
-    run_data, run_timers, run_ub, run_lb = init_data(solver.primal_sddp,
+    run_data, run_timers,  run_lb = init_data(
+    solver,
     primal_models,
     hdm,
     V,
     x₀,
     allowed_time,
+    n_batch,
     n_cycle,
     n_iter,
     n_pruning,
@@ -86,14 +88,13 @@ function solve!(
         # end
         if (verbose > 0) && (mod(i, verbose) == 0)
             lb = V[1](x₀)
-            gap = (ub - lb) / abs(lb)
             @printf(" %4i %15.6e\n", i, lb)
         end
-        run_timers[i, :time_iter] += time() - tic_iter
         
         if saving_data
+            run_timers[i, :time_iter] += time() - tic_iter
             for t in 1:horizon(hdm)
-                run_lb[i,t+1] = V[t](primal_trajectories[j][:, t]) # not lb on opt values, but lb on this traj
+                run_lb[i,t+1] = V[t](primal_trajectories[end][:, t]) # not lb on opt values, but lb on this traj
             end
         end
         # Check if allowed time is over
@@ -113,10 +114,9 @@ function solve!(
     end
     #run_data, run_timers, run_ub, run_lb, run_traj
     if saving_data 
-        CSV.write(lowercase(split(name(hdm))[1])*"_rundata.csv", run_data) 
-        CSV.write(lowercase(split(name(hdm))[1])*"_runtimers.csv", run_timers)
-        CSV.write(lowercase(split(name(hdm))[1])*"_runub.csv", run_ub) 
-        CSV.write(lowercase(split(name(hdm))[1])*"_runlb.csv", run_lb) 
+        CSV.write(lowercase(split(name(hdm))[1])*"_rundata_normalsddp.csv", run_data) 
+        CSV.write(lowercase(split(name(hdm))[1])*"_runtimers_normalsddp.csv", run_timers)
+        CSV.write(lowercase(split(name(hdm))[1])*"_runlb_normalsddp.csv", run_lb) 
     end 
     return primal_models
 end
@@ -283,6 +283,7 @@ function normalsddp(
     allowed_time = 300,
     n_warmup = 50,
     ub = 1e9,
+    saving_data = false,
 )
     (seed >= 0) && Random.seed!(seed)
 
@@ -291,7 +292,7 @@ function normalsddp(
 
     # Solve
     normal_sddp = NormalSDDP(primal_sddp, mixing, "Normal Solution SDDP [van Ackooij et al. (2019)]")
-    primal_models = solve!(normal_sddp, hdm, V,  x₀; n_iter=n_iter, n_cycle=n_cycle, verbose=verbose, τ=τ, n_pruning = n_pruning, allowed_time=allowed_time, n_warmup = n_warmup, upper_bound = ub)
+    primal_models = solve!(normal_sddp, hdm, V,  x₀; n_iter=n_iter, n_cycle=n_cycle, verbose=verbose, τ=τ, n_pruning = n_pruning, allowed_time=allowed_time, n_warmup = n_warmup, upper_bound = ub, saving_data = saving_data)
 
     return (
         primal_cuts=V,

@@ -102,6 +102,7 @@ function solve!(
     x₀::Array;
     n_iter=100,
     verbose::Int = 1,
+    allowed_time = 3600,
 )
     (verbose > 0) && header()
 
@@ -122,10 +123,13 @@ function solve!(
     for i in 1:n_iter
         scen = sample(Ξ)
         primal_trajectory = forward_pass(solver, hdm, models, scen, x₀)
-        dual_trajectory = backward_pass!(solver, hdm, models, primal_trajectory, V)
+        backward_pass!(solver, hdm, models, primal_trajectory, V)
         if (verbose > 0) && (mod(i, verbose) == 0)
             lb = V[1](x₀)
             @printf(" %4i %15.6e\n", i, lb)
+        end
+        if time() - tic > allowed_time
+            break
         end
     end
 

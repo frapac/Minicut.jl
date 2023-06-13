@@ -134,10 +134,10 @@ function solve2!(
     end
     #run_data, run_timers, run_ub, run_lb, run_traj
     if saving_data 
-        CSV.write(lowercase(split(name(hdm))[1])*"_rundata.csv", run_data) 
-        CSV.write(lowercase(split(name(hdm))[1])*"_runtimers.csv", run_timers) 
-        CSV.write(lowercase(split(name(hdm))[1])*"_runub.csv", run_ub) 
-        CSV.write(lowercase(split(name(hdm))[1])*"_runlb.csv", run_lb) 
+        CSV.write(lowercase(split(name(hdm))[1])*"_rundata_regsddp.csv", run_data) 
+        CSV.write(lowercase(split(name(hdm))[1])*"_runtimers_regsddp.csv", run_timers) 
+        CSV.write(lowercase(split(name(hdm))[1])*"_runub_regsddp.csv", run_ub) 
+        CSV.write(lowercase(split(name(hdm))[1])*"_runlb_regsddp.csv", run_lb) 
     end 
     return (primal_models, dual_models)
 end
