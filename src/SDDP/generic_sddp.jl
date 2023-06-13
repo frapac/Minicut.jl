@@ -77,8 +77,6 @@ function backward_pass!(
     Ξ = uncertainties(hdm)
     @assert length(V) == T
     trajectories_tmp = zeros(Float64, size(primal_trajectories[1], 1), size(primal_trajectories[1], 2), length(primal_trajectories))
-    
-
     for j in 1:length(primal_trajectories)
         # Final time
         trajectories_tmp[:, T, j] = previous!(sddp, models[T], primal_trajectories[j][:, T], Ξ[T], V[T])
@@ -91,7 +89,7 @@ function backward_pass!(
         end
     end
     # Ugly way to convert 3D array into array of matrices
-    trajectories = Array{Array{Float64, 2}}
+    trajectories = Array{Array{Float64, 2}}(undef, 0)
     for j in 1:length(primal_trajectories)
         push!(trajectories, trajectories_tmp[:,:,j])
     end

@@ -19,7 +19,7 @@ function solve!(
     n_warmup = 50,
     τ=1e8,
     verbose::Int=1,
-    saving_data= true,
+    saving_data= false,
     upper_bound = 1e9
 )
     (verbose > 0) && header()
@@ -63,27 +63,31 @@ function solve!(
 
     # Run
     primal_trajectories = Array{Matrix{Float64}}(undef, n_batch)
+    J = zeros(Int64,  n_batch, horizon(hdm))
+    cum_costs = zeros(Float64, n_batch, horizon(hdm) + 1)
     ubs = upper_bound*ones(Float64, horizon(hdm), n_batch) # One upperbound per node of the scenario tree
 
     for i in 1:n_iter
+        j = mod(i, n_pruning) + 1
         tic_iter = time()
         scenarios = sample(Ξ, n_batch)
         # Compute regularized forward passes, update upperbounds at the end of it
         for k in 1:n_batch
-            primal_trajectories[k] = normal_forward_pass!(solver, hdm, primal_models, V, scenarios[k], x₀, τ, ubs)
+            primal_trajectories[k], J[k,:], cum_costs[k, :] = normal_forward_pass(solver, hdm, primal_models, V, scenarios[k], x₀, τ, ubs)
         end
+        update_ubs!(hdm, uncertainties(hdm), scenarios, cum_costs, J, ubs) # In regularized_sddp the bounds are update during the forward step
         # Compute backward passes
         backward_pass!(solver.primal_sddp, hdm, primal_models, primal_trajectories, V)
-        # Pruning    
-        if  j == 1
-            tic = time()
-            V = pruning(V, primal_trajectories; verbose = verbose)
-            run_timers[i, :time_pruning] += time() - tic 
-        end
+        # # Pruning    
+        # if  j == 1
+        #     tic = time()
+        #     V = pruning(V, primal_trajectories; verbose = verbose)
+        #     run_timers[i, :time_pruning] += time() - tic 
+        # end
         if (verbose > 0) && (mod(i, verbose) == 0)
             lb = V[1](x₀)
             gap = (ub - lb) / abs(lb)
-            @printf(" %4i %15.6e %15.6e %10.3f\n", i, lb, ub, 100 * gap)
+            @printf(" %4i %15.6e\n", i, lb)
         end
         run_timers[i, :time_iter] += time() - tic_iter
         
@@ -93,7 +97,7 @@ function solve!(
             end
         end
         # Check if allowed time is over
-        if time() - tic > allowed_time
+        if time() - time_mainrun > allowed_time
             break
         end
     end
@@ -106,8 +110,6 @@ function solve!(
         @printf("Max number of iterations.........: %7i\n", n_iter)
         @printf("Main loop wall-clock time (sec)..: %7.3f\n\n", time() - time_mainrun)
         @printf("Lower-bound.....: %15.8e\n", lb)
-        @printf("Upper-bound.....: %15.8e\n", ub)
-        @printf("Final Gap.......: %13.5f %%\n", 100.0 * (ub - lb) / abs(lb))
     end
     #run_data, run_timers, run_ub, run_lb, run_traj
     if saving_data 
@@ -116,7 +118,7 @@ function solve!(
         CSV.write(lowercase(split(name(hdm))[1])*"_runub.csv", run_ub) 
         CSV.write(lowercase(split(name(hdm))[1])*"_runlb.csv", run_lb) 
     end 
-    return (primal_models, dual_models)
+    return primal_models
 end
 
 
@@ -132,9 +134,9 @@ function cost_tj!(
     # Grouping the scenarios with common history that go through (t,j)
     list_scenar, hist = histories_tj(hdm, scenarios, Ξ, t, j)
     for k in 1:length(hist)
-        weights = [weight(hdm, list_scenar, Ξ)]
-        remaining_costs = [cum_costs[i,T+1] - cum_costs[i, t+1] for i in list_scenar]
-        futur_expectation = sum(weights[i]*remaining_costs[i]  for i in 1:length(list_scenar)) /sum(weights)
+        weights = [weight(hdm, scenarios[i], Ξ) for i in list_scenar[k]]
+        remaining_costs = [cum_costs[i,horizon(hdm)+1] - cum_costs[i, t+1] for i in list_scenar[k]]
+        futur_expectation = sum(weights[i]*remaining_costs[i]  for i in 1:length(list_scenar[k])) /sum(weights)
         for i in list_scenar[k]
             ubs[t,j] = min(ubs[t,j], cum_costs[i,t+1] + futur_expectation)
         end
@@ -177,13 +179,15 @@ end
 function update_ubs!(
     hdm::HazardDecisionModel,
     Ξ::Vector{DiscreteRandomVariable{T}},
-    cum_costs::Matrix{T},
     scenarios::Array{Matrix{T}},
-    J::Vector{Int},
+    cum_costs::Matrix{T},
+    J::Matrix{Int},
     ubs::Matrix{T}
 ) where T
-    for t in 1:T
-        cost_tj!(hdm, Ξ, cum_costs, scenarios, t, J[t], ubs)
+    for t in 1:horizon(hdm)
+        for j in J[t]
+            cost_tj!(hdm, Ξ, cum_costs, scenarios, t, j, ubs)
+        end
     end
 end
 
@@ -197,8 +201,8 @@ function reg_forward_pass!(
     trajectory::Array{Float64,2},
     τ::Float64,
     ubs::Array{Float64, 2},
-    cum_costs::Array{Float64,2}, 
-    J::Vector{Int}
+    tree_path::Vector{Int64},
+    cum_cost::Vector{Float64}
 )
     Ξ = uncertainties(hdm)
     xₜ = copy(initial_state)
@@ -209,18 +213,17 @@ function reg_forward_pass!(
         lb = lowerbound(normal_sddp.primal_sddp, primal_models[t], xₜ, ξ)
         # Upper-bound
         j = find_outcome(Ξ[t], ξ)
-        J[t] = j
-        ub = ubs[t, j]
-        #relative_gap = abs((ub - lb)/lb)
-        #mixing = min(relative_gap, 1)
-        mixing = 0.5/t # Implementation details p.25 [van Ackooij et al. (2019)]
+        ub = ubs[t,j]
+        relative_gap = abs((ub - lb)/lb)
+        mixing = min(relative_gap, 1)
+        #mixing = 0.5/t # Implementation details p.25 [van Ackooij et al. (2019)]
         ℓ = mixing * lb + (1.0 - mixing) * ub
         model = stage_model(hdm, t)
-        xₜ,cost = next!(normal_sddp, model, V, xₜ, ξ, ℓ, τ, t, horizon(hdm))
-        cum_costs[t+1] = cum_costs[t] + cost
+        xₜ, cost = next!(normal_sddp, model, V, xₜ, ξ, ℓ, τ, t, horizon(hdm))
+        tree_path[t] = j
+        cum_cost[t+1] = cum_cost[t] + cost
         trajectory[:, t+1] .= xₜ
     end
-    return trajectory
 end
 
 function next!(
@@ -245,7 +248,7 @@ end
 
 
 
-function normal_forward_pass!(
+function normal_forward_pass(
     normalsddp::NormalSDDP,
     hdm::HazardDecisionModel,
     primal_models::Vector{JuMP.Model},
@@ -257,11 +260,10 @@ function normal_forward_pass!(
 )
     horizon = size(uncertainty_scenario, 2)
     primal_trajectory = fill(0.0, length(initial_state), horizon + 1)
-    cum_costs = fill(0.0, length(initial_state), horizon + 1)
-    J = zeros(Int64, horizon)
-    primal_trajectory = reg_forward_pass!(normalsddp, hdm, primal_models, V, uncertainty_scenario, initial_state, primal_trajectory, τ, ubs, cum_costs, J)
-    # Added step compared to regularized_sddp where the bounds are update during the forward step
-    update_ubs!(hdm, uncertainties(hdm), cum_costs, uncertainty_scenario, J, ubs)
+    cum_cost = zeros(Float64, horizon + 1)
+    tree_path = zeros(Int64, horizon)
+    reg_forward_pass!(normalsddp, hdm, primal_models, V, uncertainty_scenario, initial_state, primal_trajectory, τ, ubs, tree_path, cum_cost)
+    return primal_trajectory, tree_path, cum_cost
 end
 
 # Helper function

@@ -9,7 +9,6 @@ include("../examples/brazilian/brazilian.jl")
 
     bhm = BrazilianHydroModel(; T=T, nscen=n_scenarios)
     Ξ = Minicut.uncertainties(bhm)
-
     ξ = Minicut.sample(Ξ)
     scenarios = Minicut.sample(Ξ, n_sample)
     fake_scenario = zeros(Float64, 4, T)
