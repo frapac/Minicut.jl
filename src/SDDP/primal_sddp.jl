@@ -103,6 +103,7 @@ function solve!(
     n_iter=100,
     verbose::Int = 1,
     allowed_time = 3600,
+    saving_data = false,
 )
     (verbose > 0) && header()
 
@@ -118,15 +119,26 @@ function solve!(
         @printf(" %4s %15s\n", "#it", "LB")
     end
 
+    if saving_data
+        run_data, run_timers, run_lb = init_data(solver, models, hdm, V, x₀, allowed_time, n_iter)
+    end
+
     tic = time()
     # Run
     for i in 1:n_iter
+        tic_iter = time()
         scen = sample(Ξ)
         primal_trajectory = forward_pass(solver, hdm, models, scen, x₀)
         backward_pass!(solver, hdm, models, primal_trajectory, V)
         if (verbose > 0) && (mod(i, verbose) == 0)
             lb = V[1](x₀)
             @printf(" %4i %15.6e\n", i, lb)
+        end
+        if saving_data
+            run_timers[i, :time_iter] += time() - tic_iter
+            for t in 1:horizon(hdm)
+                run_lb[i,t+1] = V[t](primal_trajectory[:, t]) 
+            end
         end
         if time() - tic > allowed_time
             break
@@ -141,6 +153,12 @@ function solve!(
         @printf("Lower-bound.....: %15.8e\n", lb)
     end
 
+    if saving_data 
+        CSV.write(lowercase(split(name(hdm))[1])*"_rundata_sddp.csv", run_data) 
+        CSV.write(lowercase(split(name(hdm))[1])*"_runtimers_sddp.csv", run_timers)
+        CSV.write(lowercase(split(name(hdm))[1])*"_runlb_sddp.csv", run_lb) 
+    end 
+
     return models
 end
 
@@ -154,6 +172,7 @@ function sddp(
     verbose::Int = 1,
     lower_bound=-1e6,
     valid_statuses=[MOI.OPTIMAL],
+    saving_data = false,
 )
     (seed >= 0) && Random.seed!(seed)
     nx, T = number_states(hdm), horizon(hdm)

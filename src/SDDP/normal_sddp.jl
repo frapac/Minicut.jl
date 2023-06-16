@@ -5,6 +5,7 @@ struct NormalSDDP <: AbstractSDDP
     name::String
 end 
 
+introduce(solver::NormalSDDP) = solver.name
 
 function solve!(
     solver::NormalSDDP,
@@ -56,8 +57,8 @@ function solve!(
     end 
 
     if verbose > 0
-        @printf(" %4s %15s %15s %10s\n", "-"^4, "-"^15, "-"^15, "-"^10)
-        @printf(" %4s %15s %15s %10s\n", "#it", "LB", "UB", "Gap (%)")
+        @printf(" %4s %15s\n", "-"^4, "-"^15)
+        @printf(" %4s %15s\n", "#it", "LB")
     end
     
     # Timers
@@ -67,7 +68,7 @@ function solve!(
     primal_trajectories = Array{Matrix{Float64}}(undef, n_batch)
     J = zeros(Int64,  n_batch, horizon(hdm))
     cum_costs = zeros(Float64, n_batch, horizon(hdm) + 1)
-    ubs = upper_bound*ones(Float64, horizon(hdm), n_batch) # One upperbound per node of the scenario tree
+    ubs = upper_bound*ones(Float64, horizon(hdm), length(Ξ[2])) # One upperbound per node of the scenario tree
 
     for i in 1:n_iter
         j = mod(i, n_pruning) + 1
@@ -77,9 +78,12 @@ function solve!(
         for k in 1:n_batch
             primal_trajectories[k], J[k,:], cum_costs[k, :] = normal_forward_pass(solver, hdm, primal_models, V, scenarios[k], x₀, τ, ubs)
         end
-        update_ubs!(hdm, uncertainties(hdm), scenarios, cum_costs, J, ubs) # In regularized_sddp the bounds are update during the forward step
+        
         # Compute backward passes
         backward_pass!(solver.primal_sddp, hdm, primal_models, primal_trajectories, V)
+
+        # Update upper bounds
+        update_ubs!(hdm, uncertainties(hdm), scenarios, cum_costs, J, ubs) 
         # # Pruning    
         # if  j == 1
         #     tic = time()
@@ -112,7 +116,7 @@ function solve!(
         @printf("Main loop wall-clock time (sec)..: %7.3f\n\n", time() - time_mainrun)
         @printf("Lower-bound.....: %15.8e\n", lb)
     end
-    #run_data, run_timers, run_ub, run_lb, run_traj
+    
     if saving_data 
         CSV.write(lowercase(split(name(hdm))[1])*"_rundata_normalsddp.csv", run_data) 
         CSV.write(lowercase(split(name(hdm))[1])*"_runtimers_normalsddp.csv", run_timers)

@@ -12,7 +12,7 @@ function solve2!(
     n_warmup = 50,
     τ=1e8,
     verbose::Int=1,
-    saving_data= true
+    saving_data=false,
 )
     (verbose > 0) && header()
     Ξ = uncertainties(hdm)
@@ -64,7 +64,7 @@ function solve2!(
         tic_iter = time()
         scenario = sample(Ξ)
         j = mod(i, n_pruning) + 1 # Current index since last pruning
-        if mod(i, n_cycle) == 1 # Update upper bounds via dual sddp
+        if mod(i, n_cycle) == 0 # Update upper bounds via dual sddp
             # Primal
             tic = time()
             primal_trajectories[j], ub_tmp = reg_forward_pass(solver, hdm, primal_models, dual_models, V, D, scenario, x₀, τ)
@@ -94,7 +94,7 @@ function solve2!(
             backward_pass!(solver.dual_sddp, hdm, dual_models, dual_trajectories[j], D)
             ub, p₀ = fenchel_transform(solver.dual_sddp, D[1], x₀)
         end
-        if  j == 1
+        if  (n_pruning != 1) && (j == 1)
             tic = time()
             V = pruning(V, primal_trajectories; verbose = verbose)
             #D = pruning(D, dual_trajectories; verbose = verbose)
@@ -116,7 +116,7 @@ function solve2!(
             end
         end
         # Check if allowed time is over
-        if time() - tic > allowed_time
+        if time() - time_mainrun > allowed_time
             break
         end
     end
@@ -162,6 +162,7 @@ function regularizedsddp2(
     n_pruning = 100,
     allowed_time = 300,
     n_warmup = 50,
+    saving_data = false,
 )
     (seed >= 0) && Random.seed!(seed)
     nx, T = number_states(hdm), horizon(hdm)
@@ -173,7 +174,7 @@ function regularizedsddp2(
 
     # Solve
     reg_sddp = RegularizedPrimalSDDP(primal_sddp, dual_sddp, τ, mixing, "Regularized Primal SDDP")
-    primal_models, dual_models = solve2!(reg_sddp, hdm, V, D, x₀; n_iter=n_iter, n_cycle=n_cycle, verbose=verbose, τ=τ, n_pruning = n_pruning, allowed_time=allowed_time, n_warmup = n_warmup)
+    primal_models, dual_models = solve2!(reg_sddp, hdm, V, D, x₀; n_iter=n_iter, n_cycle=n_cycle, verbose=verbose, τ=τ, n_pruning = n_pruning, allowed_time=allowed_time, n_warmup = n_warmup, saving_data = saving_data)
 
     # Get upper-bound
     ub, _ = fenchel_transform(dual_sddp, D[1], x₀)

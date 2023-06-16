@@ -16,7 +16,6 @@ include("../examples/brazilian/brazilian.jl")
     fake_scenario[:,7:T] = scenarios[1][:, 7:T]
     push!(scenarios, fake_scenario)
     @test Minicut.scenario_path(bhm, ξ, Ξ) == [1, 37, 45, 7, 24, 8, 17, 49, 29, 24, 6, 27]
-
     @test Minicut.scenario_path(bhm, scenarios[3], Ξ)[1:6] == Minicut.scenario_path(bhm, fake_scenario, Ξ)[1:6]
 
     @test Minicut.weight(bhm, ξ, Ξ) ≈ 2.048*1e-19
