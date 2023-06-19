@@ -21,33 +21,43 @@ using Plots
     nx = Minicut.number_states(bhm)
     x0 = bhm.x0   
 
-    # 1000 SDDP step
+    # Solve with SDDP
     optimizer = () -> Gurobi.Optimizer(GRB_ENV)
     solver = Minicut.SDDP(optimizer, [MOI.OPTIMAL, MOI.OTHER_ERROR])
     V = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T] # V will contain sddp iters until saturation
     models = Minicut.solve!(solver, bhm, V, x0; n_iter=max_iter, verbose=50, allowed_time = allowed_time, saving_data=true)
     objective_sddp = V[1](x0)
 
-    # Solve with normal SDDP
-    optimizer = () -> Gurobi.Optimizer(GRB_ENV)
-    solver = Minicut.SDDP(optimizer, [MOI.OPTIMAL, MOI.OTHER_ERROR])
-    V1 = deepcopy(V)
-    normal_sol = Minicut.normalsddp(bhm, x0, optimizer, V1; n_iter=max_iter*10, verbose=10, τ=1e8, n_cycle=n_cycle, n_pruning = n_pruning, allowed_time = allowed_time, n_warmup = n_warmup, valid_statuses = [MOI.OPTIMAL, MOI.LOCALLY_SOLVED], saving_data = true)
-    objective_normal = normal_sol.lower_bound
+    # # Solve with Mixed Primal Dual SDDP
+    # mixed_sol = Minicut.mixedsddp(bhm, x0, optimizer; seed=0, n_iter= max_iter*10, verbose = 20, lower_bound=lower_bound, lip_ub=+1e10, lip_lb=-1e10, valid_statuses=[MOI.OPTIMAL], allowed_time = 1200, saving_data = true)
+
+
+    # # Solve with Dual SDDP
+    # optimizer = () -> Gurobi.Optimizer(GRB_ENV)
+    # dual_sddp = Minicut.DualSDDP(optimizer; lip_lb=-1e6, lip_ub=1e6)
+    # D = [Minicut.PolyhedralFunction(nx, lower_bound) for t in 1:T]
+    # dual_models = Minicut.solve!(dual_sddp, bhm, D, x0; n_iter=max_iter*10, verbose=10, saving_data = true, allowed_time = allowed_time)
+
+    # # Solve with normal SDDP
+    # optimizer = () -> Gurobi.Optimizer(GRB_ENV)
+    # solver = Minicut.SDDP(optimizer, [MOI.OPTIMAL, MOI.OTHER_ERROR])
+    # V1 = deepcopy(V)
+    # normal_sol = Minicut.normalsddp(bhm, x0, optimizer, V1; n_iter=max_iter*10, verbose=10, τ=1e8, n_cycle=n_cycle, n_pruning = n_pruning, allowed_time = allowed_time, n_warmup = n_warmup, valid_statuses = [MOI.OPTIMAL, MOI.LOCALLY_SOLVED], saving_data = true)
+    # objective_normal = normal_sol.lower_bound
     
 
     # Solve with regularized SDDP 2
     optimizer = () -> Gurobi.Optimizer(GRB_ENV)
-    solver = Minicut.SDDP(optimizer, [MOI.OPTIMAL, MOI.OTHER_ERROR])
-    V3 = deepcopy(V)
+    # V3 = deepcopy(V)
+    V3 = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T]
     D = [PolyhedralFunction(nx, lower_bound) for t in 1:T]
-    reg_sol2 = Minicut.regularizedsddp2(bhm, x0, optimizer, V3, D; n_iter=10*max_iter, verbose=10, τ=1e8, lower_bound=lower_bound, n_cycle=n_cycle, n_pruning = n_pruning, allowed_time = allowed_time, n_warmup = n_warmup, valid_statuses = [MOI.OPTIMAL, MOI.LOCALLY_SOLVED], saving_data = true)
-    objective_primal2 = reg_sol2.lower_bound
-    objective_dual2 = reg_sol2.upper_bound
-    println("Regularized SDDP gap..............: $((abs(objective_dual2 - objective_primal2) / abs(objective_dual2))*100)% ")
+    reg_sol2 = Minicut.regularizedsddp2(bhm, x0, optimizer, V3, D; n_iter=3*max_iter, verbose=10, τ=1e8, lower_bound=lower_bound, n_cycle=n_cycle, n_pruning = n_pruning, allowed_time = allowed_time, n_warmup = n_warmup, valid_statuses = [MOI.OPTIMAL, MOI.LOCALLY_SOLVED], saving_data = true)
+    # objective_primal2 = reg_sol2.lower_bound
+    # objective_dual2 = reg_sol2.upper_bound
+    # println("Regularized SDDP gap..............: $((abs(objective_dual2 - objective_primal2) / abs(objective_dual2))*100)% ")
 
-    # Keep doing SDDP 
-    Minicut.solve!(solver, bhm, V, x0; n_iter=max_iter, verbose=50, allowed_time = allowed_time, saving_data=true)
+    # # Keep doing SDDP 
+    # Minicut.solve!(solver, bhm, V, x0; n_iter=max_iter, verbose=50, allowed_time = allowed_time, saving_data=true)
 
     #@test abs(objective_normal - objective_sddp)/abs(objective_sddp) < 0.001
 end
