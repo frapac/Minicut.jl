@@ -123,7 +123,6 @@ function reg_forward_pass!(
     for (t, ξₜ₊₁) in enumerate(eachcol(uncertainty_scenario))
         xi = collect(ξₜ₊₁)
         # Lower-bound.
-        
         lb = lowerbound(Regsddp.primal_sddp, primal_models[t], xₜ, xi)
 
         # Upper-bound.
@@ -137,8 +136,11 @@ function reg_forward_pass!(
         upperbounds[t] = ub
         # Regularization level ; Adaptative combination between lb and ub depending on the relative gap
         relative_gap = abs((ub - lb)/lb)
-        mix_ublb = min(relative_gap, 1)
-        #mix_ublb = 0.5/t # Implementation details p.25 [van Ackooij et al. (2019)]
+        if relative_gap > 0.01
+            mix_ublb = min(relative_gap, 1)
+        else # When low enough, both ub and lb are equally good approximations
+            mix_ublb = 0.5/t
+        end
         ℓ = mix_ublb * lb + (1.0 - mix_ublb) * ub
         model = stage_model(hdm, t)
         xₜ = next!(Regsddp, model, V, xₜ, xi, ℓ, τ, t, horizon(hdm))

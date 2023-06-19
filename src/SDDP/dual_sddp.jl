@@ -136,6 +136,8 @@ function solve!(
     x₀::Array;
     n_iter=100,
     verbose::Int = 1,
+    allowed_time = 1200,
+    saving_data = false,
 )
     (verbose > 0) && header()
 
@@ -151,23 +153,53 @@ function solve!(
         @printf(" %4s %15s\n", "#it", "UB")
     end
 
+    run_data, run_timers, run_ub = init_data(
+    solver,
+    models,
+    hdm,
+    D,
+    x₀,
+    allowed_time,
+    n_iter,
+    )
+
     # Run
-    tic = time()
+    time_mainrun = time()
     ub, p₀ = fenchel_transform(solver, D[1], x₀)
     for i in 1:n_iter
+        tic_iter = time()
         scenario = sample(Ξ)
+        tic = time()
         dual_trajectory = cupps_pass!(solver, hdm, models, scenario, p₀, D)
+        run_timers[i, :time_dual_forward] += time() - tic 
+        tic = time()
         primal_trajectory = backward_pass!(solver, hdm, models, dual_trajectory, D)
+        run_timers[i, :time_dual_backward] += time() - tic
         ub, p₀ = fenchel_transform(solver, D[1], x₀)
+        run_timers[i, :time_iter] += time() - tic_iter
         if (verbose > 0) && (mod(i, verbose) == 0)
             @printf(" %4i %15.6e\n", i, ub)
         end
+        if time() - time_mainrun > allowed_time
+            break
+        end
+        if saving_data
+            for t in 1:horizon(hdm)
+                run_ub[i,t+1] = fenchel_transform(solver, D[t], dual_trajectory[:, t])[1]
+            end
+        end
     end
+
+    if saving_data 
+        CSV.write(lowercase(split(name(hdm))[1])*"_rundata_dualsddp.csv", run_data) 
+        CSV.write(lowercase(split(name(hdm))[1])*"_runtimers_dualsddp.csv", run_timers) 
+        CSV.write(lowercase(split(name(hdm))[1])*"_runub_dualsddp.csv", run_ub) 
+    end 
 
     if verbose > 0
         @printf(" %4s %15s\n\n", "-"^4, "-"^15)
         @printf("Number of iterations.........: %7i\n", n_iter)
-        @printf("Total wall-clock time (sec)..: %7.3f\n\n", time() - tic)
+        @printf("Total wall-clock time (sec)..: %7.3f\n\n", time() - time_mainrun)
         @printf("Upper-bound.....: %15.8e\n", ub)
     end
 
@@ -186,12 +218,14 @@ function dualsddp(
     lip_ub=+1e10,
     lip_lb=-1e10,
     valid_statuses=[MOI.OPTIMAL],
+    allowed_time = 1200,
+    saving_data = false,
 )
     (seed >= 0) && Random.seed!(seed)
     nx, T = number_states(hdm), horizon(hdm)
     D = [PolyhedralFunction(nx, lower_bound) for t in 1:T]
     dual_sddp = DualSDDP(optimizer, valid_statuses, lip_lb, lip_ub)
-    dual_models = solve!(dual_sddp, hdm, D, x₀; n_iter=n_iter, verbose=verbose)
+    dual_models = solve!(dual_sddp, hdm, D, x₀; n_iter=n_iter, verbose=verbose, allowed_time = allowed_time, saving_data = saving_data)
     ub, _ = fenchel_transform(dual_sddp, D[1], x₀)
     return (cuts=D, models=dual_models, upper_bound=ub)
 end

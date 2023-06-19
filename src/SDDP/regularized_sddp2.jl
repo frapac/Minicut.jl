@@ -67,7 +67,8 @@ function solve2!(
         if mod(i, n_cycle) == 0 # Update upper bounds via dual sddp
             # Primal
             tic = time()
-            primal_trajectories[j], ub_tmp = reg_forward_pass(solver, hdm, primal_models, dual_models, V, D, scenario, x₀, τ)
+            #primal_trajectories[j], ub_tmp = reg_forward_pass(solver, hdm, primal_models, dual_models, V, D, scenario, x₀, τ)
+            primal_trajectories[j] = forward_pass(solver.primal_sddp, hdm, primal_models, scenario, x₀)
             run_timers[i, :time_primal_forward] += time() - tic 
             tic = time()
             backward_pass!(solver.primal_sddp, hdm, primal_models, primal_trajectories[j], V)
@@ -84,7 +85,8 @@ function solve2!(
         else # Update upper bounds using primal cuts = dual trajectory
             # Primal
             tic = time()
-            primal_trajectories[j], ub_tmp = reg_forward_pass(solver, hdm, primal_models, dual_models, V, D, scenario, x₀, τ)
+            #primal_trajectories[j], ub_tmp = reg_forward_pass(solver, hdm, primal_models, dual_models, V, D, scenario, x₀, τ)
+            primal_trajectories[j] = forward_pass(solver.primal_sddp, hdm, primal_models, scenario, x₀)
             run_timers[i, :time_primal_forward] += time() - tic 
             tic = time()
             dual_trajectories[j] = backward_pass!(solver.primal_sddp, hdm, primal_models, primal_trajectories[j], V)
@@ -108,10 +110,9 @@ function solve2!(
         run_timers[i, :time_iter] += time() - tic_iter
         
         if saving_data
-            run_ub[i, 2:(horizon(hdm)+1)] = ub_tmp
+            #run_ub[i, 2:(horizon(hdm)+1)] = ub_tmp
             for t in 1:horizon(hdm)
-                #run_ub[i,t+1] = fenchel_transform(solver.dual_sddp, D[t], dual_trajectories[j][:, t])[1]
-                #run_ub[i,t+1] = fenchel_transform(solver.dual_sddp, D[t], primal_trajectories[j][:, t])[1]
+                run_ub[i,t+1] = fenchel_transform(solver.dual_sddp, D[t], primal_trajectories[j][:, t])[1]
                 run_lb[i,t+1] = V[t](primal_trajectories[j][:, t]) # not lb, just values along trajectories
             end
         end
@@ -217,7 +218,7 @@ function warmup!(
         ub, p₀ = fenchel_transform(solver.dual_sddp, D[1], x₀)
         if  j == 1
             V = pruning(V,  primal_trajectories, verbose = verbose)
-            #D = pruning(D, dual_trajectories, verbose = verbose) # Don't prune the dual anymore as it deteriorates primal upper bounds
+            # D = pruning(D, dual_trajectories, verbose = verbose) # Don't prune the dual anymore as it deteriorates primal upper bounds
         end
         if (verbose > 0) && (mod(i, verbose) == 0) && (n_warmup > 0)
             lb = V[1](x₀)
