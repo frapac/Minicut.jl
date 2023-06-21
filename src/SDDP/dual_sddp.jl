@@ -96,7 +96,8 @@ end
 function fenchel_transform(solver::DualSDDP, D::PolyhedralFunction, x)
     nx = dimension(D)
     model = Model()
-    @variable(model, solver.lipschitz_lb <= λ[1:nx] <= 0.0)
+    #@variable(model, solver.lipschitz_lb <= λ[1:nx] <= 0.0) # why upper bounded by 0? I think the constraint on λ is norm(λ, Inf) < L_t 
+    @variable(model, solver.lipschitz_lb ≤ λ[1:nx] ≤ solver.lipschitz_ub)
     @variable(model, θ)
     for (xk, βk) in eachcut(D)
         @constraint(model, θ >= dot(xk, λ) + βk)
