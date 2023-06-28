@@ -11,7 +11,7 @@ function gap_plot(lowerbounds, upperbounds)
             label = ["Upperbounds" "Lowerbounds"]
         )
     end
-    gif(anim, "gap_plot.gif", fps = 1)
+    gif(anim, "gap_plot.gif", fps = 2)
 end
 
 function time_plot(times, values)

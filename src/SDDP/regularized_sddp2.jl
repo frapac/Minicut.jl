@@ -58,6 +58,7 @@ function solve2!(
     ub = Inf
     ub, p₀ = fenchel_transform(solver.dual_sddp, D[1], x₀)
     primal_trajectories = Array{Matrix{Float64}}(undef, n_pruning)
+    #primal_trajectories_test = Array{Matrix{Float64}}(undef, n_pruning)
     dual_trajectories = Array{Matrix{Float64}}(undef, n_pruning)
 
     for i in 1:n_iter
@@ -67,8 +68,8 @@ function solve2!(
         if mod(i, n_cycle) == 0 # Update upper bounds via dual sddp
             # Primal
             tic = time()
-            #primal_trajectories[j], ub_tmp = reg_forward_pass(solver, hdm, primal_models, dual_models, V, D, scenario, x₀, τ)
-            primal_trajectories[j] = forward_pass(solver.primal_sddp, hdm, primal_models, scenario, x₀)
+            primal_trajectories[j], ub_tmp = reg_forward_pass(solver, hdm, primal_models, dual_models, V, D, scenario, x₀, τ)
+            #primal_trajectories_test[j] = forward_pass(solver.primal_sddp, hdm, primal_models, scenario, x₀)
             run_timers[i, :time_primal_forward] += time() - tic 
             tic = time()
             backward_pass!(solver.primal_sddp, hdm, primal_models, primal_trajectories[j], V)
@@ -80,22 +81,22 @@ function solve2!(
             tic = time()
             backward_pass!(solver.dual_sddp, hdm, dual_models, dual_trajectories[j], D)
             run_timers[i, :time_dual_backward] += time() - tic 
-            ub, p₀ = fenchel_transform(solver.dual_sddp, D[1], x₀)
-
         else # Update upper bounds using primal cuts = dual trajectory
             # Primal
             tic = time()
-            #primal_trajectories[j], ub_tmp = reg_forward_pass(solver, hdm, primal_models, dual_models, V, D, scenario, x₀, τ)
-            primal_trajectories[j] = forward_pass(solver.primal_sddp, hdm, primal_models, scenario, x₀)
+            primal_trajectories[j], ub_tmp = reg_forward_pass(solver, hdm, primal_models, dual_models, V, D, scenario, x₀, τ)
+            #primal_trajectories[j] = forward_pass(solver.primal_sddp, hdm, primal_models, scenario, x₀)
             run_timers[i, :time_primal_forward] += time() - tic 
             tic = time()
             dual_trajectories[j] = backward_pass!(solver.primal_sddp, hdm, primal_models, primal_trajectories[j], V)
             run_timers[i, :time_primal_backward] += time() - tic 
             run_timers[i, :time_dual_forward] += 0.0 
             # Dual
+            tic = time()
             backward_pass!(solver.dual_sddp, hdm, dual_models, dual_trajectories[j], D)
-            ub, p₀ = fenchel_transform(solver.dual_sddp, D[1], x₀)
+            run_timers[i, :time_dual_backward] += time() - tic
         end
+        ub, p₀ = fenchel_transform(solver.dual_sddp, D[1], x₀)
         if  (n_pruning != 1) && (j == 1)
             tic = time()
             V = pruning(V, primal_trajectories; verbose = verbose)
@@ -114,6 +115,9 @@ function solve2!(
             for t in 1:horizon(hdm)
                 run_ub[i,t+1] = fenchel_transform(solver.dual_sddp, D[t], primal_trajectories[j][:, t])[1]
                 run_lb[i,t+1] = V[t](primal_trajectories[j][:, t]) # not lb, just values along trajectories
+                if run_ub[i, t+1] < run_lb[i,t+1] 
+                    println("The upper bound at time $t iteration $i is under the lower bound")
+                end
             end
         end
         # Check if allowed time is over

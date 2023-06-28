@@ -48,8 +48,9 @@ function lowerbound(
     sddp::SDDP,
     model::JuMP.Model,
     xₜ::Vector{Float64},
-    ξₜ₊₁::Vector{Float64}
+    ξₜ₊₁::Vector{Float64},
 )
+    set_optimizer(model, sddp.optimizer)
     solve_stage_problem!(sddp, model, xₜ, ξₜ₊₁)
     return objective_value(model)
 end
@@ -72,18 +73,18 @@ function upperbound(
     lipschitz = dual_sddp.lipschitz_ub
 
     # define simplex Λ
-    @variable(model, eta[1:n_cuts] >= 0.0)
+    @variable(model, sigma[1:n_cuts] >= 0.0)
     @variable(model, xabs[1:size(xf)[1]])
-    @variable(model, x_alt[1:size(xf)[1]])
+    @variable(model, y[1:size(xf)[1]])
 
-    @constraint(model, sum(eta) == 1.0)
+    @constraint(model, sum(sigma) == 1.0)
     # we build the inner approximation all in once
-    @constraint(model, xabs .>= xf - x_alt) #norm1
-    @constraint(model, xabs .>= x_alt - xf)
-    @constraint(model, x_alt .== sum(eta[i] * D.λ[i, :] for i in 1:ncuts(D)))
+    @constraint(model, xabs .>= xf - y) #norm1
+    @constraint(model, xabs .>= y - xf)
+    @constraint(model, y .== sum(sigma[i] * D.λ[i, :] for i in 1:ncuts(D)))
 
     cost_fct = objective_function(model)
-    @objective(model, Min, cost_fct - sum(eta[i] * D.γ[i] for i in 1:n_cuts) + lipschitz * sum(xabs))
+    @objective(model, Min, cost_fct - sum(sigma[i] * D.γ[i] for i in 1:n_cuts) + lipschitz * sum(xabs))
     optimize!(model)
     return objective_value(model)
 end
@@ -124,10 +125,8 @@ function reg_forward_pass!(
         xi = collect(ξₜ₊₁)
         # Lower-bound.
         lb = lowerbound(Regsddp.primal_sddp, primal_models[t], xₜ, xi)
-
         # Upper-bound.
         ubmodel = stage_model(hdm, t)
-        
         if t < horizon(hdm)
             ub = upperbound(Regsddp.dual_sddp, ubmodel, xₜ, xi, D[t+1])
         else
@@ -136,14 +135,15 @@ function reg_forward_pass!(
         upperbounds[t] = ub
         # Regularization level ; Adaptative combination between lb and ub depending on the relative gap
         relative_gap = abs((ub - lb)/lb)
-        if relative_gap > 0.01
+        if relative_gap > 0.1
             mix_ublb = min(relative_gap, 1)
         else # When low enough, both ub and lb are equally good approximations
             mix_ublb = 0.5/t
         end
+        #mix_ublb = 0.5/t
         ℓ = mix_ublb * lb + (1.0 - mix_ublb) * ub
-        model = stage_model(hdm, t)
-        xₜ = next!(Regsddp, model, V, xₜ, xi, ℓ, τ, t, horizon(hdm))
+        reg_model = stage_model(hdm, t)
+        xₜ = next!(Regsddp, reg_model, V, xₜ, xi, ℓ, τ, t, horizon(hdm))
         trajectory[:, t+1] .= xₜ
     end
     return trajectory

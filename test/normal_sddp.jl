@@ -9,7 +9,10 @@ using Plots
     Random.seed!(2713)
     n_scenarios = 5
     T = 5
-    lower_bound = -3.0e6
+    lower_bound = -3.0e8
+    lip_ub = 1e4
+    lip_lb = -1e4  
+
     max_iter = 150
     n_cycle = 1
     n_pruning = 1
@@ -21,12 +24,16 @@ using Plots
     nx = Minicut.number_states(bhm)
     x0 = bhm.x0   
 
-    # Solve with SDDP
-    optimizer = () -> Gurobi.Optimizer(GRB_ENV)
-    solver = Minicut.SDDP(optimizer, [MOI.OPTIMAL, MOI.OTHER_ERROR])
-    V = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T] # V will contain sddp iters until saturation
-    models = Minicut.solve!(solver, bhm, V, x0; n_iter=max_iter, verbose=50, allowed_time = allowed_time, saving_data=true)
-    objective_sddp = V[1](x0)
+    # # Solve with SDDP
+    # optimizer = () -> Gurobi.Optimizer(GRB_ENV)
+    # solver = Minicut.SDDP(optimizer, [MOI.OPTIMAL, MOI.OTHER_ERROR])
+    # V = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T] # V will contain sddp iters until saturation
+    # models = Minicut.solve!(solver, bhm, V, x0; n_iter=max_iter, verbose=50, allowed_time = allowed_time, saving_data=true)
+    # objective_sddp = V[1](x0)
+
+    # for t in 1:T
+    #     println("L_$t max = $(Minicut.lipschitz_constant(V[t], 2))")
+    # end
 
     # # Solve with Mixed Primal Dual SDDP
     # mixed_sol = Minicut.mixedsddp(bhm, x0, optimizer; seed=0, n_iter= max_iter*10, verbose = 20, lower_bound=lower_bound, lip_ub=+1e10, lip_lb=-1e10, valid_statuses=[MOI.OPTIMAL], allowed_time = 1200, saving_data = true)
@@ -51,9 +58,21 @@ using Plots
     # V3 = deepcopy(V)
     V3 = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T]
     D = [PolyhedralFunction(nx, lower_bound) for t in 1:T]
-    reg_sol2 = Minicut.regularizedsddp2(bhm, x0, optimizer, V3, D; n_iter=3*max_iter, verbose=10, τ=1e8, lower_bound=lower_bound, n_cycle=n_cycle, n_pruning = n_pruning, allowed_time = allowed_time, n_warmup = n_warmup, valid_statuses = [MOI.OPTIMAL, MOI.LOCALLY_SOLVED], saving_data = true)
-    # objective_primal2 = reg_sol2.lower_bound
-    # objective_dual2 = reg_sol2.upper_bound
+    reg_sol2 = Minicut.regularizedsddp2(bhm, x0, optimizer, V3, D; n_iter=3*max_iter, verbose=10, τ=1e8, lower_bound=lower_bound, n_cycle=n_cycle, n_pruning = n_pruning, allowed_time = allowed_time, n_warmup = n_warmup, valid_statuses = [MOI.OPTIMAL, MOI.LOCALLY_SOLVED], saving_data = true, lip_ub = lip_ub, lip_lb = lip_lb)
+    objective_primal2 = reg_sol2.lower_bound
+    objective_dual2 = reg_sol2.upper_bound
+
+    n_points = 1000
+    box = x0 .+ repeat(range(0, 10000, length=n_points)', nx, 1)
+    val_diff = zeros(Float64, n_points, T) 
+    for t in 1:T
+        for i in 1:n_points
+            val_diff[i,t] = Minicut.difference(optimizer, box[:,i], V3[t], D[t])
+        end
+    end
+    println("Number of points with negative gap = $(length(filter(x-> x<0, val_diff)))")
+
+
     # println("Regularized SDDP gap..............: $((abs(objective_dual2 - objective_primal2) / abs(objective_dual2))*100)% ")
 
     # # Keep doing SDDP 
