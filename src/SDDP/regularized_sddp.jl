@@ -140,7 +140,6 @@ function reg_forward_pass!(
         else # When low enough, both ub and lb are equally good approximations
             mix_ublb = 0.5/t
         end
-        #mix_ublb = 0.5/t
         ℓ = mix_ublb * lb + (1.0 - mix_ublb) * ub
         reg_model = stage_model(hdm, t)
         xₜ = next!(Regsddp, reg_model, V, xₜ, xi, ℓ, τ, t, horizon(hdm))

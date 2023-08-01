@@ -85,14 +85,12 @@ function pruning!(V::Vector{PolyhedralFunction}, trajectories::Vector{Array{Floa
 end
 
 # Computes the difference between V and the inf convolution of D with L_t \lVert \cdot \rVert_1 at a given point x
-function difference(solver::Any, xt::Vector{Float64}, V::PolyhedralFunction, D::PolyhedralFunction; L_t = 1e10)
+function difference(solver::Any, xt::Vector{Float64}, V::PolyhedralFunction, D::PolyhedralFunction, L_t::Float64)
     model = Model()
     JuMP.set_optimizer(model, solver)
     nx = dimension(V)
     # Lipschitz constant
-    lipschitz = 2*lipschitz_constant(V) # May need to change ?
-    println("Lipschitz = $lipschitz")
-    # lipschitz = L_t
+    lipschitz = 1.1*L_t # 10% more than the estimate L_t, to be "safer"
 
     # epigraphical definition of outer approximations of V_t 
     @variable(model, θ)

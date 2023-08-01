@@ -1,6 +1,19 @@
+#=
+    Regularized dual SDDP
+=#
+
+struct RegularizedDualSDDP <: AbstractSDDP
+    primal_sddp::SDDP
+    dual_sddp::DualSDDP
+    tau::Float64
+    mixing::Float64
+    name::String
+end 
+
+introduce(regsddp::RegularizedPrimalSDDP) = regsddp.name
 
 function solve2!(
-    solver::RegularizedPrimalSDDP,
+    solver::RegularizedDualSDDP,
     hdm::HazardDecisionModel,
     V::Array{PolyhedralFunction},
     D::Array{PolyhedralFunction},
@@ -66,22 +79,22 @@ function solve2!(
         scenario = sample(Ξ)
         j = mod(i, n_pruning) + 1 # Current index since last pruning
         if mod(i, n_cycle) == 0 # Update upper bounds via dual sddp
-            # Primal
-            tic = time()
-            primal_trajectories[j], ub_tmp = reg_forward_pass(solver, hdm, primal_models, dual_models, V, D, scenario, x₀, τ)
-            #primal_trajectories[j] = forward_pass(solver.primal_sddp, hdm, primal_models, scenario, x₀)
-            run_timers[i, :time_primal_forward] += time() - tic 
-            tic = time()
-            backward_pass!(solver.primal_sddp, hdm, primal_models, primal_trajectories[j], V)
-            run_timers[i, :time_primal_backward] += time() - tic 
             # Dual
             tic = time()
             dual_trajectories[j] = forward_pass(solver.dual_sddp, hdm, dual_models, scenario, p₀)
             run_timers[i, :time_dual_forward] += time() - tic 
             tic = time()
-            #primal_trajectories[j] = backward_pass!(solver.dual_sddp, hdm, dual_models, dual_trajectories[j], D)
-            backward_pass!(solver.dual_sddp, hdm, dual_models, dual_trajectories[j], D)
+            primal_trajectories[j] = backward_pass!(solver.dual_sddp, hdm, dual_models, dual_trajectories[j], D)
             run_timers[i, :time_dual_backward] += time() - tic 
+            # Primal
+            tic = time()
+            #primal_trajectories[j], ub_tmp = reg_forward_pass(solver, hdm, primal_models, dual_models, V, D, scenario, x₀, τ)
+            #primal_trajectories[j] = forward_pass(solver.primal_sddp, hdm, primal_models, scenario, x₀)
+            run_timers[i, :time_primal_forward] += time() - tic 
+            tic = time()
+            backward_pass!(solver.primal_sddp, hdm, primal_models, primal_trajectories[j], V)
+            run_timers[i, :time_primal_backward] += time() - tic 
+
         else # Update upper bounds using primal cuts = dual trajectory
             # Primal
             tic = time()
@@ -115,7 +128,7 @@ function solve2!(
             #run_ub[i, 2:(horizon(hdm)+1)] = ub_tmp
             for t in 1:horizon(hdm)
                 run_ub[i,t+1] = fenchel_transform(solver.dual_sddp, D[t], primal_trajectories[j][:, t])[1]
-                run_lb[i,t+1] = V[t](primal_trajectories[j][:, t]) # values along trajectories
+                run_lb[i,t+1] = V[t](primal_trajectories[j][:, t]) # not lb, just values along trajectories
                 if run_ub[i, t+1] < run_lb[i,t+1] 
                     println("The upper bound at time $t iteration $i is under the lower bound")
                 end
@@ -146,94 +159,4 @@ function solve2!(
         CSV.write(lowercase(split(name(hdm))[1])*"_runlb_regsddp.csv", run_lb) 
     end 
     return (primal_models, dual_models)
-end
-
-# Helper function
-function regularizedsddp2(
-    hdm::HazardDecisionModel,
-    x₀::Array,
-    optimizer,
-    V::Array{PolyhedralFunction},
-    D::Array{PolyhedralFunction};
-    mixing=1.0,
-    τ=1e8,
-    seed=0,
-    n_iter=500,
-    verbose::Int=1,
-    lower_bound=-1e6,
-    lip_ub=+1e10,
-    lip_lb=-1e10,
-    valid_statuses=[MOI.OPTIMAL],
-    n_cycle= 10,
-    n_pruning = 100,
-    allowed_time = 300,
-    n_warmup = 50,
-    saving_data = false,
-)
-    (seed >= 0) && Random.seed!(seed)
-    nx, T = number_states(hdm), horizon(hdm)
-
-
-    # Solvers
-    primal_sddp = SDDP(optimizer, valid_statuses)
-    dual_sddp = DualSDDP(optimizer, valid_statuses, lip_lb, lip_ub)
-
-    # Solve
-    reg_sddp = RegularizedPrimalSDDP(primal_sddp, dual_sddp, τ, mixing, "Regularized Primal SDDP")
-    primal_models, dual_models = solve2!(reg_sddp, hdm, V, D, x₀; n_iter=n_iter, n_cycle=n_cycle, verbose=verbose, τ=τ, n_pruning = n_pruning, allowed_time=allowed_time, n_warmup = n_warmup, saving_data = saving_data)
-
-    # Get upper-bound
-    ub, _ = fenchel_transform(dual_sddp, D[1], x₀)
-
-    return (
-        primal_cuts=V,
-        primal_models=primal_models,
-        lower_bound=V[1](x₀),
-        dual_cuts=D,
-        dual_models=dual_models,
-        upper_bound=ub,
-    )
-end
-
-
-function warmup!(
-    solver::RegularizedPrimalSDDP,
-    primal_models,
-    dual_models,
-    hdm::HazardDecisionModel,
-    V::Array{PolyhedralFunction},
-    D::Array{PolyhedralFunction},
-    x₀::Array;
-    verbose::Int=1,
-    n_warmup = 50,
-    n_pruning = 100
-)
-    Ξ = uncertainties(hdm)
-    ub = Inf
-    primal_trajectories = Array{Matrix{Float64}}(undef, n_pruning)
-    dual_trajectories = Array{Matrix{Float64}}(undef, n_pruning)
-    for i in 1:n_warmup
-        scenario = sample(Ξ)
-        j = mod(i, n_pruning) + 1
-        # Primal
-        primal_trajectories[j] = forward_pass(solver.primal_sddp, hdm, primal_models, scenario, x₀)
-        dual_trajectories[j] = backward_pass!(solver.primal_sddp, hdm, primal_models, primal_trajectories[j], V)
-        # Dual
-        backward_pass!(solver.dual_sddp, hdm, dual_models, dual_trajectories[j], D)
-        ub, p₀ = fenchel_transform(solver.dual_sddp, D[1], x₀)
-        if  j == 1
-            V = pruning(V,  primal_trajectories, verbose = verbose)
-            # D = pruning(D, dual_trajectories, verbose = verbose) # Don't prune the dual anymore as it deteriorates primal upper bounds
-        end
-        if (verbose > 0) && (mod(i, verbose) == 0) && (n_warmup > 0)
-            lb = V[1](x₀)
-            gap = (ub - lb) / abs(lb)
-            @printf(" %4i %15.6e %15.6e %10.3f\n", i, lb, ub, 100 * gap)
-        end
-    end
-    if n_warmup > 0
-        println("Mean primal bundle size after warmup: $(mean(ncuts(V[t]) for t in 1:horizon(hdm)))")
-        println("Mean dual bundle size after warmup  : $(mean(ncuts(D[t]) for t in 1:horizon(hdm)))")
-    end 
-    return V, D
 end
