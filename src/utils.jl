@@ -19,9 +19,14 @@ function Base.getindex(v::DiscreteRandomVariable, n::Int)
     return (weights[n], view(supports[:, n]))
 end
 
-function Base.rand(v::DiscreteRandomVariable)
+function sample(v::DiscreteRandomVariable)
     n = findfirst(cumsum(v.weights) .>= rand())
-    return v.supports[:, n]
+    w = v.supports[:, n]
+    return (n, w)
+end
+
+function Base.rand(v::DiscreteRandomVariable)
+    return sample(v)[2]
 end
 
 function find_outcome(v::DiscreteRandomVariable, x::Vector)
@@ -35,17 +40,32 @@ function find_outcome(v::DiscreteRandomVariable, x::Vector)
     return idx
 end
 
-function sample!(vs::Vector{DiscreteRandomVariable{T}}, scenario::Matrix{T}) where T
+abstract type AbstractScenario end
+
+struct InSampleScenario{T} <: AbstractScenario
+    path::Vector{Int}
+    values::Matrix{T}
+end
+
+function InSampleScenario(T::Int, m::Int)
+    return InSampleScenario{Float64}(
+        zeros(Int, T),
+        zeros(Float64, m, T)
+    )
+end
+
+function sample!(vs::Vector{DiscreteRandomVariable{T}}, scen::InSampleScenario{T}) where T
     for (t, v) in enumerate(vs)
-        scenario[:, t] .= rand(v)
+        (k, w) = sample(v)
+        scen.path[t] = k
+        scen.values[:, t] .= w
     end
-    return scenario
+    return scen
 end
 
 function sample(vs::Vector{DiscreteRandomVariable{T}}) where T
     # All v in vs should share the same dimension
-    m = dimension(vs[1])
-    scenario = zeros(T, m, length(vs))
+    scenario = InSampleScenario(length(vs), dimension(vs[1]))
     return sample!(vs, scenario)
 end
 

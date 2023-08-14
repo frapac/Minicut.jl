@@ -21,8 +21,8 @@ function solve!(
     (verbose > 0) && header()
     Ξ = uncertainties(hdm)
 
-    primal_models = build_stage_models(solver.primal_sddp, hdm, V)
-    dual_models = build_stage_models(solver.dual_sddp, hdm, D)
+    primal_tree = build_tree(solver.primal_sddp, hdm, V)
+    dual_tree = build_tree(solver.dual_sddp, hdm, D)
 
     if verbose > 0
         println("Algorithm: ", introduce(solver))
@@ -39,12 +39,12 @@ function solve!(
     for i in 1:n_iter
         scenario = sample(Ξ)
         # Primal
-        primal_trajectory = forward_pass(solver.primal_sddp, hdm, primal_models, scenario, x₀)
-        dual_trajectory = backward_pass!(solver.primal_sddp, hdm, primal_models, primal_trajectory, V)
+        primal_trajectory = forward_pass(solver.primal_sddp, primal_tree, scenario, x₀)
+        dual_trajectory = backward_pass!(solver.primal_sddp, primal_tree, primal_trajectory, V)
         # Dual
-        backward_pass!(solver.dual_sddp, hdm, dual_models, dual_trajectory, D)
+        backward_pass!(solver.dual_sddp, dual_tree, dual_trajectory, D)
         ub, p₀ = fenchel_transform(solver.dual_sddp, D[1], x₀)
-        cupps_pass!(solver.dual_sddp, hdm, dual_models, scenario, p₀, D)
+        forward_pass!(solver.dual_sddp, dual_tree, scenario, p₀, D)
 
         if (verbose > 0) && (mod(i, verbose) == 0)
             lb = V[1](x₀)
@@ -64,7 +64,7 @@ function solve!(
         @printf("Upper-bound.....: %15.8e\n", ub)
         @printf("Final Gap.......: %13.5f %%\n", 100.0 * (ub - lb) / abs(lb))
     end
-    return (primal_models, dual_models)
+    return (primal_tree, dual_tree)
 end
 
 # Helper function

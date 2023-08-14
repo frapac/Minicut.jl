@@ -15,51 +15,62 @@ introduce(::SDDP) = "Primal SDDP"
     One-stage problem
 =#
 
-function initialize!(::SDDP, model::JuMP.Model, Vₜ₊₁::PolyhedralFunction)
-    @variable(model, θ)
+function initialize!(::SDDP, stage::AbstractNode, Vₜ₊₁::PolyhedralFunction)
+    @variable(stage.model, θ)
     for (λ, γ) in eachcut(Vₜ₊₁)
-        @constraint(model, θ >= λ' * model[_CURRENT_STATE] + γ)
+        @constraint(stage.model, θ >= λ' * stage.model[_CURRENT_STATE] + γ)
     end
-    obj_expr = objective_function(model)
-    @objective(model, Min, obj_expr + θ)
+    obj_expr = objective_function(stage.model)
+    @objective(stage.model, Min, obj_expr + θ)
     return
 end
 
-function solve_stage_problem!(sddp::SDDP, model::JuMP.Model, xₜ::Vector{Float64}, ξₜ₊₁::Vector{Float64})
-    fix.(model[_PREVIOUS_STATE], xₜ, force = true)
-    fix.(model[_UNCERTAINTIES], ξₜ₊₁, force = true)
-    optimize!(model)
-    if termination_status(model) ∉ sddp.valid_statuses
-        error("[SDDP] Fail to solve primal subproblem: solver's return status is $(termination_status(model))")
+function solve_stage_problem!(sddp::SDDP, stage::AbstractNode, xₜ::Vector{Float64}, ξₜ₊₁::Vector{Float64})
+    fix.(stage.model[_PREVIOUS_STATE], xₜ, force = true)
+    fix.(stage.model[_UNCERTAINTIES], ξₜ₊₁, force = true)
+    optimize!(stage.model)
+    status = termination_status(stage.model)
+    if status ∉ sddp.valid_statuses
+        error("[SDDP] Fail to solve primal subproblem: solver's return status is $(status).")
     end
     return
 end
 
 fetch_cut(sddp::SDDP, model::JuMP.Model) = dual.(FixRef.(model[_PREVIOUS_STATE]))
 
-function stage_objective_value(sddp::SDDP, model::JuMP.Model, hdm::HazardDecisionModel, t)
+function stage_objective_value(sddp::SDDP, stage::AbstractNode, hdm::HazardDecisionModel, t)
     if t == horizon(hdm)
-        return JuMP.objective_value(model)
+        return JuMP.objective_value(stage.model)
     else
-        Vx = JuMP.value.(model[_VALUE_FUNCTION])
-        return JuMP.objective_value(model) - Vx
+        Vx = JuMP.value.(stage.model[_VALUE_FUNCTION])
+        return JuMP.objective_value(stage.model) - Vx
     end
+end
+
+function add_cut!(stage::AbstractNode, Vₜ::PolyhedralFunction, λ, γ)
+    add_cut!(Vₜ, λ, γ)
+
+    parent = stage.parent
+    if !isnothing(parent)
+        @constraint(parent.model, parent.model[_VALUE_FUNCTION] >= λ' * parent.model[_CURRENT_STATE] + γ)
+    end
+    return
 end
 
 function next!(
     sddp::SDDP,
-    model::JuMP.Model,
+    stage::AbstractNode,
     xₜ::Vector{Float64},
     ξ::DiscreteRandomVariable{Float64},
     ξₜ₊₁::Vector{Float64},
 )
-    solve_stage_problem!(sddp, model, xₜ, ξₜ₊₁)
-    return value.(model[_CURRENT_STATE])
+    solve_stage_problem!(sddp, stage, xₜ, ξₜ₊₁)
+    return JuMP.value.(stage.model[_CURRENT_STATE])
 end
 
 function previous!(
     sddp::SDDP,
-    model::JuMP.Model,
+    stage::AbstractNode,
     xₜ::Vector{Float64},
     ξ::DiscreteRandomVariable{Float64},
     Vₜ::PolyhedralFunction,
@@ -69,30 +80,24 @@ function previous!(
     λ = zeros(nx)
     γ = 0.0
     for (i, πᵢ) in enumerate(πₜ₊₁)
-        solve_stage_problem!(sddp, model, xₜ, ξₜ₊₁[:, i])
-        λᵢ = fetch_cut(sddp, model)
+        solve_stage_problem!(sddp, stage, xₜ, ξₜ₊₁[:, i])
+        λᵢ = fetch_cut(sddp, stage.model)
         axpy!(πᵢ, λᵢ, λ)
-        γ += πᵢ * (objective_value(model) - dot(λᵢ, xₜ))
+        γ += πᵢ * (objective_value(stage.model) - dot(λᵢ, xₜ))
     end
-    add_cut!(Vₜ, λ, γ)
+    add_cut!(stage, Vₜ, λ, γ)
     return λ
 end
 
-function synchronize!(::SDDP, model::JuMP.Model, Vₜ₊₁::PolyhedralFunction)
-    @constraint(model, model[_VALUE_FUNCTION] >= Vₜ₊₁.λ[end, :]' * model[_CURRENT_STATE] + Vₜ₊₁.γ[end])
-    return
-end
-
-function build_stage_models(solver::SDDP, hdm::HazardDecisionModel, V::Vector{PolyhedralFunction})
-    T = horizon(hdm)
-    models = [stage_model(hdm, t) for t in 1:T]
-    for (t, model) in enumerate(models)
-        if t < T
-            initialize!(solver, model, V[t+1])
+function build_tree(solver::SDDP, hdm::HazardDecisionModel, V::Vector{PolyhedralFunction})
+    tree = MultistageProblem(hdm)
+    for stage in tree.stages
+        if stage.t < horizon(hdm)
+            initialize!(solver, stage, V[stage.t+1])
         end
-        JuMP.set_optimizer(model, solver.optimizer)
+        JuMP.set_optimizer(stage.model, solver.optimizer)
     end
-    return models
+    return tree
 end
 
 function solve!(
@@ -101,11 +106,12 @@ function solve!(
     V::Array{PolyhedralFunction},
     x₀::Array;
     n_iter=100,
+    n_forward=1,
     verbose::Int = 1,
 )
     (verbose > 0) && header()
 
-    models = build_stage_models(solver, hdm, V)
+    problem = build_tree(solver, hdm, V)
     Ξ = uncertainties(hdm)
 
     if verbose > 0
@@ -120,9 +126,9 @@ function solve!(
     tic = time()
     # Run
     for i in 1:n_iter
-        scen = sample(Ξ)
-        primal_trajectory = forward_pass(solver, hdm, models, scen, x₀)
-        dual_trajectory = backward_pass!(solver, hdm, models, primal_trajectory, V)
+        scen = sample(Ξ, n_forward)
+        primal_trajectory = forward_pass(solver, problem, scen, x₀)
+        dual_trajectory = backward_pass!(solver, problem, primal_trajectory, V)
         if (verbose > 0) && (mod(i, verbose) == 0)
             lb = V[1](x₀)
             @printf(" %4i %15.6e\n", i, lb)
@@ -137,7 +143,7 @@ function solve!(
         @printf("Lower-bound.....: %15.8e\n", lb)
     end
 
-    return models
+    return problem
 end
 
 # Helper function

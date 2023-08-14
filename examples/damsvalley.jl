@@ -68,7 +68,7 @@ function Minicut.stage_model(dvm::DamsValleyModel, t::Int)
     return m
 end
 
-function damsvalley(; max_iter=500, nbins=10, nsimus=1000)
+function damsvalley(; max_iter=500, n_forward=1, nbins=10, nsimus=1000)
     Random.seed!(2713)
     T = 12
 
@@ -85,11 +85,11 @@ function damsvalley(; max_iter=500, nbins=10, nsimus=1000)
         HiGHS.Optimizer, "output_flag" => false,
     )
     solver = Minicut.SDDP(optimizer)
-    models = Minicut.solve!(solver, dvm, V, x0; n_iter=max_iter, verbose=10)
+    models = Minicut.solve!(solver, dvm, V, x0; n_forward=n_forward, n_iter=max_iter, verbose=10)
 
     # Simulation
     scenarios = Minicut.sample(Minicut.uncertainties(dvm), nsimus)
-    costs = Minicut.simulate!(solver, dvm, models, x0, scenarios)
+    costs = Minicut.simulate!(solver, models, x0, scenarios)
     ub = mean(costs) + 1.96 * std(costs) / sqrt(nsimus)
     lb = V[1](x0)
 

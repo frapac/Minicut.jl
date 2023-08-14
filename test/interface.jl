@@ -11,7 +11,7 @@
     # Initial position
     x0 = [8.0]
     # Build model
-    wdm = WaterDamModel(T; nbins=5)
+    wdm = WaterDamModel(T; nbins=3)
 
     # Extensive form
     sol_extensive = Minicut.extensive(wdm, x0, optimizer)
