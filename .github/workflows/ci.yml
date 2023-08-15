@@ -7,14 +7,9 @@ on:
     tags: '*'
   pull_request:
     types: [opened, synchronize, reopened]
-  schedule:
-    - cron: '0 0 * * 0'
 
 jobs:
-  test-github-linux-julia-1.9:
-    env:
-      DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  test-github:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
