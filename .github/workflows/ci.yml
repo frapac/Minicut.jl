@@ -11,7 +11,7 @@ on:
     - cron: '0 0 * * 0'
 
 jobs:
-  test-github-cpuonly:
+  test-linux-julia-1.9:
     env:
       DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
