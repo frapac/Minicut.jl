@@ -5,6 +5,7 @@ include("primal_sddp.jl")
 include("dual_sddp.jl")
 include("mixed_sddp.jl")
 include("regularized_sddp.jl")
+include("normal_sddp.jl")
 
 #=
     Generic Forward pass

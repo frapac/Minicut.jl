@@ -44,9 +44,9 @@ end
 abstract type AbstractMultiStageModel end
 
 # Basic multistage problem.
-struct MultistageProblem{M, N} <: AbstractMultiStageModel
+struct MultistageProblem{M, N<:AbstractNode} <: AbstractMultiStageModel
     model::M
-    stages::Vector{Stage{N}}
+    stages::Vector{N}
 end
 
 function MultistageProblem(model::AbstractOneStageModel)
@@ -86,4 +86,5 @@ const _UNCERTAINTIES         = :(ξ)
 const _PREVIOUS_COSTATE      = :(μ₋)
 const _CURRENT_COSTATE       = :(μ)
 const _VALUE_FUNCTION        = :(θ)
+const _LEVEL                 = :(level)
 
