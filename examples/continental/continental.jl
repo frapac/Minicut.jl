@@ -220,12 +220,12 @@ function continental(; names=[:FRA, :GER, :ESP, :PT, :ITA, :SUI, :UK, :BEL], T=1
     optimizer = JuMP.optimizer_with_attributes(
         HiGHS.Optimizer, "output_flag" => false,
     )
-    solver = Minicut.SDDP(optimizer)
-    models = Minicut.solve!(solver, cm, V, x0; n_iter=max_iter, verbose=10)
+    solver = Minicut.SDDP(optimizer, [MOI.OPTIMAL, MOI.OTHER_ERROR])
+    models = Minicut.solve!(solver, cm, V, x0; n_iter=max_iter, verbose=10, n_forward=1)
 
     # Simulation
     scenarios = Minicut.sample(Minicut.uncertainties(cm), nsimus)
-    costs = Minicut.simulate!(solver, cm, models, x0, scenarios)
+    costs = Minicut.simulate!(solver, models, x0, scenarios)
     ub = mean(costs) + 1.96 * std(costs) / sqrt(nsimus)
     lb = V[1](x0)
 

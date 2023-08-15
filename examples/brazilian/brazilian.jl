@@ -144,15 +144,16 @@ function Minicut.stage_model(bm::BrazilianHydroModel, t::Int)
     return m
 end
 
-function brazilian(; T=12, max_iter=500, nscenarios=10, nsimus=1000)
+function brazilian(; T=12, run_dual=false, max_iter=500, nscenarios=10, nsimus=1000)
     Random.seed!(2713)
+    valid_statuses = [MOI.OPTIMAL]
 
     bhm = BrazilianHydroModel(; T=T, nscen=nscenarios)
     nx = Minicut.number_states(bhm)
     x0 = bhm.x0
 
     # Initialize value functions.
-    lower_bound = -1e6
+    lower_bound = -1e9
     V = [Minicut.PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T]
 
     # Solve with SDDP
@@ -164,11 +165,20 @@ function brazilian(; T=12, max_iter=500, nscenarios=10, nsimus=1000)
 
     # Simulation
     scenarios = Minicut.sample(Minicut.uncertainties(bhm), nsimus)
-    costs = Minicut.simulate!(solver, bhm, models, x0, scenarios)
+    costs = Minicut.simulate!(solver, models, x0, scenarios)
     ub = mean(costs) + 1.96 * std(costs) / sqrt(nsimus)
     lb = V[1](x0)
 
-    println("Final statistical gap: ", abs(ub - lb) / abs(ub))
+    println("Statistical gap: ", abs(ub - lb) / abs(ub))
+
+    if run_dual
+        dual_sddp = Minicut.DualSDDP(optimizer, valid_statuses, -1e9, 1e9)
+        D = [Minicut.PolyhedralFunction(nx, lower_bound) for t in 1:T]
+        dual_models = Minicut.solve!(dual_sddp, bhm, D, x0; n_iter=max_iter, verbose=10)
+        ub, p0 = Minicut.fenchel_transform(dual_sddp, D[1], x0)
+        println("Dual gap: ", abs(ub - lb) / abs(ub))
+    end
+
     return
 end
 

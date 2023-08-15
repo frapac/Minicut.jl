@@ -24,70 +24,76 @@ function _next_costate_reference(model::JuMP.Model, k::Int)
     return costates[f:t]
 end
 
-function initialize!(::DualSDDP, model::JuMP.Model, ξₜ₊₁::DiscreteRandomVariable{Float64}, Dₜ₊₁::PolyhedralFunction)
+function initialize!(::DualSDDP, stage::Stage, ξₜ₊₁::DiscreteRandomVariable{Float64}, Dₜ₊₁::PolyhedralFunction)
     nw = length(ξₜ₊₁)
     π = ξₜ₊₁.weights
-    @variable(model, θ[1:nw])
+    @variable(stage.model, θ[1:nw])
     for k in 1:nw
-        μk = _next_costate_reference(model, k)
+        μk = _next_costate_reference(stage.model, k)
         for (λ, γ) in eachcut(Dₜ₊₁)
-            @constraint(model, θ[k] >= λ' * μk + γ)
+            @constraint(stage.model, θ[k] >= λ' * μk + γ)
         end
     end
-    obj_expr = objective_function(model)
-    @objective(model, Min, -obj_expr + sum(π[k] * θ[k] for k in 1:nw))
+    obj_expr = objective_function(stage.model)
+    @objective(stage.model, Min, -obj_expr + sum(π[k] * θ[k] for k in 1:nw))
     return
 end
 
-function solve_stage_problem!(sddp::DualSDDP, model::JuMP.Model, μₜ::Vector{Float64})
-    fix.(model[_PREVIOUS_COSTATE], μₜ)
-    optimize!(model)
-    v = JuMP.all_variables(model)
-    if termination_status(model) ∉ sddp.valid_statuses
-        error("[SDDP] Fail to solve dual subproblem: solver's return status is $(termination_status(model))")
+function solve_stage_problem!(sddp::DualSDDP, stage::Stage, μₜ::Vector{Float64})
+    fix.(stage.model[_PREVIOUS_COSTATE], μₜ)
+    optimize!(stage.model)
+    status = termination_status(stage.model)
+    if termination_status(stage.model) ∉ sddp.valid_statuses
+        error("[SDDP] Fail to solve dual subproblem: solver's return status is $(termination_status(stage.model))")
     end
     return
 end
 
 fetch_cut(sddp::DualSDDP, model::JuMP.Model) = dual.(FixRef.(model[_PREVIOUS_COSTATE]))
 
+function add_dual_cut!(stage::Stage, Dₜ::PolyhedralFunction, x, γ)
+    add_cut!(Dₜ, x, γ)
+
+    parent = stage.parent
+    if !isnothing(parent)
+        nw = length(parent.model[_VALUE_FUNCTION])
+        for k in 1:nw
+            μk = _next_costate_reference(parent.model, k)
+            @constraint(parent.model, parent.model[_VALUE_FUNCTION][k] >= x' * μk + γ)
+        end
+    end
+    return
+end
+
 function next!(
     sddp::DualSDDP,
-    model::JuMP.Model,
+    stage::Stage,
     μₜ::Vector{Float64},
     ξ::DiscreteRandomVariable{Float64},
     ξₜ₊₁::Vector{Float64},
 )
-    solve_stage_problem!(sddp, model, μₜ)
+    solve_stage_problem!(sddp, stage, μₜ)
     k = find_outcome(ξ, ξₜ₊₁)
     @assert 1 <= k <= length(ξ)
-    μf = _next_costate_reference(model, k)
+    μf = _next_costate_reference(stage.model, k)
     return JuMP.value.(μf)
 end
 
 function previous!(
     sddp::DualSDDP,
-    model::JuMP.Model,
+    stage::Stage,
     μₜ::Vector{Float64},
     ξ::DiscreteRandomVariable{Float64},
     Dₜ::PolyhedralFunction,
 )
     nx = length(μₜ)
-    solve_stage_problem!(sddp, model, μₜ)
-    x = fetch_cut(sddp, model)
-    γ = objective_value(model) - dot(x, μₜ)
-    add_cut!(Dₜ, x, γ)
+    solve_stage_problem!(sddp, stage, μₜ)
+    x = fetch_cut(sddp, stage.model)
+    γ = objective_value(stage.model) - dot(x, μₜ)
+    add_dual_cut!(stage, Dₜ, x, γ)
     return x
 end
 
-function synchronize!(::DualSDDP, model::JuMP.Model, Dₜ₊₁::PolyhedralFunction)
-    nw = length(model[_VALUE_FUNCTION])
-    for k in 1:nw
-        μk = _next_costate_reference(model, k)
-        @constraint(model, model[_VALUE_FUNCTION][k] >= Dₜ₊₁.λ[end, :]' * μk + Dₜ₊₁.γ[end])
-    end
-    return
-end
 
 #=
     Algorithm
@@ -96,7 +102,7 @@ end
 function fenchel_transform(solver::DualSDDP, D::PolyhedralFunction, x)
     nx = dimension(D)
     model = Model()
-    @variable(model, solver.lipschitz_lb <= λ[1:nx] <= 0.0)
+    @variable(model, solver.lipschitz_lb <= λ[1:nx] <= solver.lipschitz_ub)
     @variable(model, θ)
     for (xk, βk) in eachcut(D)
         @constraint(model, θ >= dot(xk, λ) + βk)
@@ -109,24 +115,62 @@ function fenchel_transform(solver::DualSDDP, D::PolyhedralFunction, x)
     return JuMP.objective_value(model), JuMP.value.(λ)
 end
 
-function build_stage_models(solver::DualSDDP, hdm::HazardDecisionModel, D::Vector{PolyhedralFunction})
+function build_tree(solver::DualSDDP, hdm::HazardDecisionModel, D::Vector{PolyhedralFunction})
     Ξ = uncertainties(hdm)
     T = horizon(hdm)
     # Initialize model between time t=1 up to T-1
-    models = [dual_stage_model(hdm, t, solver.lipschitz_lb, solver.lipschitz_ub) for t in 1:T-1]
-    # NB: we define apart the model for final stage and we deactivate
-    #     final co-state (μ₊ = 0) to let Dualization.jl take care of final costs.
-    push!(models, dual_stage_model(hdm, T, 0.0, 0.0))
-    for (t, model) in enumerate(models)
-        if t < T
-            initialize!(solver, model, Ξ[t], D[t+1])
+    parent = nothing
+    stages = Stage{JuMP.Model}[]
+    for t in 1:T
+        lb, ub = if t < T
+            solver.lipschitz_lb, solver.lipschitz_ub
         else
-            obj_expr = objective_function(model)
-            @objective(model, Min, -obj_expr)
+            # Set final co-state (μ₊ = 0) to let Dualization.jl take care of final costs.
+            0.0, 0.0
         end
-        JuMP.set_optimizer(model, solver.optimizer)
+        pb = dual_stage_model(hdm, t, lb, ub)
+        stage = Stage(parent, pb, t, t==T)
+        push!(stages, stage)
+        parent = stage
     end
-    return models
+
+    for stage in stages
+        if stage.t < T
+            initialize!(solver, stage, Ξ[stage.t], D[stage.t+1])
+        else
+            obj_expr = objective_function(stage.model)
+            @objective(stage.model, Min, -obj_expr)
+        end
+        JuMP.set_optimizer(stage.model, solver.optimizer)
+    end
+
+    return MultistageProblem(hdm, stages)
+end
+
+#=
+    Forward pass for dual SDDP (aka CUPPS)
+=#
+function forward_pass!(
+    sddp::DualSDDP,
+    tree::MultistageProblem,
+    scenario::InSampleScenario{Float64},
+    initial_state::Vector{Float64},
+    V::Vector{PolyhedralFunction},
+)
+    Ξ = uncertainties(tree.model)
+    nx, T = number_states(tree.model), horizon(tree.model)
+    trajectory = fill(0.0, nx, T + 1)
+    trajectory[:, 1] .= initial_state
+    for stage in tree.stages
+        xₜ = trajectory[:, stage.t]
+        wₜ = scenario.values[:, stage.t]
+        trajectory[:, stage.t+1] .= next!(sddp, stage, xₜ, Ξ[stage.t], wₜ)
+        # Fetch cut and add it directly.
+        λ = fetch_cut(sddp, stage.model)
+        γ = JuMP.objective_value(stage.model) - dot(λ, trajectory[:, stage.t])
+        add_dual_cut!(stage, V[stage.t], λ, γ)
+    end
+    return trajectory
 end
 
 function solve!(
@@ -139,7 +183,7 @@ function solve!(
 )
     (verbose > 0) && header()
 
-    models = build_stage_models(solver, hdm, D)
+    tree = build_tree(solver, hdm, D)
     Ξ = uncertainties(hdm)
 
     if verbose > 0
@@ -156,8 +200,8 @@ function solve!(
     ub, p₀ = fenchel_transform(solver, D[1], x₀)
     for i in 1:n_iter
         scenario = sample(Ξ)
-        dual_trajectory = cupps_pass!(solver, hdm, models, scenario, p₀, D)
-        primal_trajectory = backward_pass!(solver, hdm, models, dual_trajectory, D)
+        dual_trajectory = forward_pass!(solver, tree, scenario, p₀, D)
+        primal_trajectory = backward_pass!(solver, tree, dual_trajectory, D)
         ub, p₀ = fenchel_transform(solver, D[1], x₀)
         if (verbose > 0) && (mod(i, verbose) == 0)
             @printf(" %4i %15.6e\n", i, ub)
@@ -171,7 +215,7 @@ function solve!(
         @printf("Upper-bound.....: %15.8e\n", ub)
     end
 
-    return models
+    return tree
 end
 
 # Helper function

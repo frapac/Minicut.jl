@@ -46,9 +46,7 @@ end
     T = 10
     ds = [d for _ in 1:T]
     scenario = Minicut.sample(ds)
-    @test isa(scenario, Matrix)
-    @test size(scenario) == (n, T)
-
-
+    @test isa(scenario, Minicut.InSampleScenario)
+    @test size(scenario.values) == (n, T)
 end
 

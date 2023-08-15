@@ -12,32 +12,45 @@ include("regularized_sddp.jl")
 
 function forward_pass!(
     sddp::AbstractSDDP,
-    hdm::HazardDecisionModel,
-    models::Vector{JuMP.Model},
-    uncertainty_scenario::Array{Float64,2},
+    tree::AbstractMultiStageModel,
+    scenarios::InSampleScenario{Float64},
     initial_state::Vector{Float64},
     trajectory::Array{Float64,2},
 )
-    Ξ = uncertainties(hdm)
+    Ξ = uncertainties(tree.model)
     xₜ = copy(initial_state)
     trajectory[:, 1] .= xₜ
-    for (t, ξₜ₊₁) in enumerate(eachcol(uncertainty_scenario))
-        xₜ = next!(sddp, models[t], xₜ, Ξ[t], collect(ξₜ₊₁))
-        trajectory[:, t+1] .= xₜ
+    for stage in tree.stages
+        wₜ = scenarios.values[:, stage.t]
+        xₜ = next!(sddp, stage, xₜ, Ξ[stage.t], wₜ)
+        trajectory[:, stage.t+1] .= xₜ
     end
     return trajectory
 end
 
 function forward_pass(
     sddp::AbstractSDDP,
-    hdm::HazardDecisionModel,
-    models::Vector{JuMP.Model},
-    uncertainty_scenario::Array{Float64,2},
+    tree::AbstractMultiStageModel,
+    scenario::AbstractScenario,
     initial_state::Vector{Float64},
 )
-    horizon = size(uncertainty_scenario, 2)
-    primal_trajectory = fill(0.0, length(initial_state), horizon + 1)
-    return forward_pass!(sddp, hdm, models, uncertainty_scenario, initial_state, primal_trajectory)
+    T = horizon(tree.model)
+    primal_trajectory = fill(0.0, length(initial_state), T + 1)
+    forward_pass!(sddp, tree, scenario, initial_state, primal_trajectory)
+    return primal_trajectory
+end
+
+function forward_pass(
+    sddp::AbstractSDDP,
+    tree::AbstractMultiStageModel,
+    scenarios::Vector{S},
+    initial_state::Vector{Float64},
+) where S <: AbstractScenario
+    trajectories = Matrix{Float64}[]
+    for scenario in scenarios
+        push!(trajectories, forward_pass(sddp, tree, scenario, initial_state))
+    end
+    return trajectories
 end
 
 #=
@@ -46,51 +59,46 @@ end
 
 function backward_pass!(
     sddp::AbstractSDDP,
-    hdm::HazardDecisionModel,
-    models::Vector{JuMP.Model},
+    tree::AbstractMultiStageModel,
     primal_trajectory::Array{Float64,2},
     V::Vector{PolyhedralFunction},
 )
-    T = length(models)
-    Ξ = uncertainties(hdm)
+    T = horizon(tree.model)
     @assert length(V) == T
+    Ξ = uncertainties(tree.model)
+    nscen = length(primal_trajectory)
     trajectory = zeros(size(primal_trajectory))
-    # Final time
-    trajectory[:, T] .= previous!(sddp, models[T], primal_trajectory[:, T], Ξ[T], V[T])
-    # Reverse pass
-    @inbounds for t in reverse(1:T-1)
-        synchronize!(sddp, models[t], V[t+1])
-        trajectory[:, t] .= previous!(sddp, models[t], primal_trajectory[:, t], Ξ[t], V[t])
+    stage = final_stage(tree)
+    while !isnothing(stage)
+        t = stage.t
+        trajectory[:, t] .= previous!(sddp, stage, primal_trajectory[:, t], Ξ[t], V[t])
+        stage = stage.parent
     end
     return trajectory
 end
 
-#=
-    CUPPS pass
-=#
-
-function cupps_pass!(
+function backward_pass!(
     sddp::AbstractSDDP,
-    hdm::HazardDecisionModel,
-    models::Vector{JuMP.Model},
-    uncertainty_scenario::Array{Float64,2},
-    initial_state::Vector{Float64},
+    tree::AbstractMultiStageModel,
+    primal_trajectory::Vector{Array{Float64, 2}},
     V::Vector{PolyhedralFunction},
 )
-    Ξ = uncertainties(hdm)
-    nx, T = number_states(hdm), horizon(hdm)
-    trajectory = fill(0.0, nx, T + 1)
-    trajectory[:, 1] .= initial_state
-    for (t, ξₜ₊₁) in enumerate(eachcol(uncertainty_scenario))
-        model = models[t]
-        trajectory[:, t+1] .= next!(sddp, model, trajectory[:, t], Ξ[t], collect(ξₜ₊₁))
-        # Fetch cut and add it directly.
-        λ = fetch_cut(sddp, model)
-        γ = JuMP.objective_value(model) - dot(λ, trajectory[:, t])
-        add_cut!(V[t], λ, γ)
-        (t > 1) && synchronize!(sddp, models[t-1], V[t])
+    T, nx = horizon(tree.model), number_states(tree.model)
+    nscen = length(primal_trajectory)
+    @assert length(V) == T
+    Ξ = uncertainties(tree.model)
+    dual_trajectory = fill(zeros(nx, T), nscen)
+    stage = final_stage(tree)
+    while !isnothing(stage)
+        t = stage.t
+        for s in 1:nscen
+            x = primal_trajectory[s][:, t]
+            λ = previous!(sddp, stage, x, Ξ[t], V[t])
+            dual_trajectory[s][:, t] .= λ
+        end
+        stage = stage.parent
     end
-    return trajectory
+    return dual_trajectory
 end
 
 #=
@@ -99,47 +107,24 @@ end
 
 function simulate!(
     sddp::AbstractSDDP,
-    hdm::HazardDecisionModel,
-    models::Vector{JuMP.Model},
+    tree::AbstractMultiStageModel,
     initial_state::Vector{Float64},
-    uncertainty_scenario::Vector{Array{Float64,2}},
+    scenarios::Vector{InSampleScenario{Float64}},
 )
-    Ξ = uncertainties(hdm)
-    n_scenarios = length(uncertainty_scenario)
-    n_states = number_states(hdm)
+    Ξ = uncertainties(tree.model)
+    n_scenarios = length(scenarios)
+    n_states = number_states(tree.model)
     xₜ = zeros(n_states)
     costs = zeros(n_scenarios)
     for k in 1:n_scenarios
         xₜ .= initial_state
-        for t in 1:horizon(hdm)
-            ξ = uncertainty_scenario[k][:, t]
-            xₜ = next!(sddp, models[t], xₜ, Ξ[t], ξ)
-            costs[k] += stage_objective_value(sddp, models[t], hdm, t)
+        for stage in tree.stages
+            t = stage.t
+            ξ = scenarios[k].values[:, t]
+            xₜ = next!(sddp, stage, xₜ, Ξ[t], ξ)
+            costs[k] += stage_objective_value(sddp, stage, tree.model, t)
         end
     end
     return costs
-end
-
-function sample_trajectory!(
-    sddp::AbstractSDDP,
-    hdm::HazardDecisionModel,
-    models::Vector{JuMP.Model},
-    initial_state::Vector{Float64},
-    uncertainty_scenario::Vector{Array{Float64,2}},
-)
-    Ξ = uncertainties(hdm)
-    n_states, n_scenarios = number_states(hdm), length(uncertainty_scenario)
-    trajectory = zeros(n_scenarios, horizon(hdm) + 1, n_states)
-    for k in 1:n_scenarios
-        trajectory[k, 1, :] .= initial_state
-    end
-    # NB: inverting the for loops is more efficient
-    for t in 1:horizon(hdm)
-        for k in 1:n_scenarios
-            ξ = uncertainty_scenario[k][:, t]
-            trajectory[k, t+1, :] .= next!(sddp, models[t], trajectory[k, t, :], Ξ[t], ξ)
-        end
-    end
-    return trajectory
 end
 
