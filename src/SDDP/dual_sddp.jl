@@ -17,6 +17,13 @@ introduce(::DualSDDP) = "Dual SDDP"
     One-stage problem
 =#
 
+"""
+    _next_costate_reference(model::JuMP.Model, k::Int)
+
+Return the outgoing dual state for the realisation `k` of the 
+exogeneous noise.
+"""
+
 function _next_costate_reference(model::JuMP.Model, k::Int)
     nx = length(model[_PREVIOUS_COSTATE])
     costates = model[_CURRENT_COSTATE]
@@ -24,6 +31,19 @@ function _next_costate_reference(model::JuMP.Model, k::Int)
     return costates[f:t]
 end
 
+"""
+    initialize!(::DualSDDP, stage::Stage, ξₜ₊₁::DiscreteRandomVariable{Float64}, Dₜ₊₁::PolyhedralFunction)
+
+Initialize a stage of the DualSDDP algorithm.
+
+This function sets up the optimization model for a specific stage of the DualSDDP algorithm, incorporating the costate variables, constraints, and objective necessary for the optimization process.
+
+## Arguments
+- `::DualSDDP`: The DualSDDP algorithm object.
+- `stage::Stage`: The stage for which the optimization model is being initialized.
+- `ξₜ₊₁::DiscreteRandomVariable{Float64}`: The random variable representing uncertainty at the next time step.
+- `Dₜ₊₁::PolyhedralFunction`: The polyhedral function representing the dual cost-to-go at the next time step.
+"""
 function initialize!(::DualSDDP, stage::Stage, ξₜ₊₁::DiscreteRandomVariable{Float64}, Dₜ₊₁::PolyhedralFunction)
     nw = length(ξₜ₊₁)
     π = ξₜ₊₁.weights
@@ -39,6 +59,18 @@ function initialize!(::DualSDDP, stage::Stage, ξₜ₊₁::DiscreteRandomVariab
     return
 end
 
+"""
+    solve_stage_problem!(sddp::DualSDDP, stage::Stage, μₜ::Vector{Float64})
+
+Solve the optimization subproblem associated with a single stage in the DualSDDP algorithm.
+
+This function performs the optimization of a specific stage within the DualSDDP algorithm. It fixes the previous costate variables, optimizes the stage's model, and checks the termination status of the solver. If the solver's termination status indicates failure, an error is raised.
+
+## Arguments
+- `sddp::DualSDDP`: The DualSDDP algorithm object.
+- `stage::Stage`: The stage for which the optimization subproblem is being solved.
+- `μₜ::Vector{Float64}`: The vector of fixed values for the previous costate variables.
+"""
 function solve_stage_problem!(sddp::DualSDDP, stage::Stage, μₜ::Vector{Float64})
     fix.(stage.model[_PREVIOUS_COSTATE], μₜ)
     optimize!(stage.model)
@@ -49,8 +81,21 @@ function solve_stage_problem!(sddp::DualSDDP, stage::Stage, μₜ::Vector{Float6
     return
 end
 
+"""
+    fetch_cut(sddp::DualSDDP, model::JuMP.Model)
+
+Return the slope of the cut obtained when solving the current model.
+#TODO: unclear
+"""
 fetch_cut(sddp::DualSDDP, model::JuMP.Model) = dual.(FixRef.(model[_PREVIOUS_COSTATE]))
 
+"""
+    add_dual_cut!(stage::Stage, Dₜ::PolyhedralFunction, x, γ)
+
+    Add a cut with slope `x` and offset `γ` for the dual value function of the current stage.
+
+    Add the cut both to the PolyhedralFunction Dₜ and to the parent `model`
+"""
 function add_dual_cut!(stage::Stage, Dₜ::PolyhedralFunction, x, γ)
     add_cut!(Dₜ, x, γ)
 
@@ -65,6 +110,32 @@ function add_dual_cut!(stage::Stage, Dₜ::PolyhedralFunction, x, γ)
     return
 end
 
+"""
+    next!(
+        sddp::DualSDDP,
+        stage::Stage,
+        μₜ::Vector{Float64},
+        ξ::DiscreteRandomVariable{Float64},
+        ξₜ₊₁::Vector{Float64}
+    )
+
+Advance to the next stage of the Dual Stochastic Dynamic Programming (DualSDDP) algorithm.
+
+This function progresses the DualSDDP algorithm to the next time step by performing the following steps:
+1. Solve the optimization subproblem for the current stage using fixed previous costate variables.
+2. Determine the outcome index `k` based on the realization of the random variable `ξₜ₊₁`.
+3. Retrieve the costate variables associated with the determined outcome `k` using `_next_costate_reference`.
+
+## Arguments
+- `sddp::DualSDDP`: The DualSDDP algorithm object.
+- `stage::Stage`: The current stage of the algorithm.
+- `μₜ::Vector{Float64}`: The previous costate variables.
+- `ξ::DiscreteRandomVariable{Float64}`: The random variable representing uncertainty at the current time step.
+- `ξₜ₊₁::Vector{Float64}`: The realization of the uncertainty variable considered.
+
+## Returns
+Next optimal costate
+"""
 function next!(
     sddp::DualSDDP,
     stage::Stage,
@@ -79,6 +150,30 @@ function next!(
     return JuMP.value.(μf)
 end
 
+"""
+    previous!(
+        sddp::DualSDDP,
+        stage::Stage,
+        μₜ::Vector{Float64},
+        ξ::DiscreteRandomVariable{Float64},
+        Dₜ::PolyhedralFunction
+    )
+
+Perform the backward pass of the DualSDDP algorithm.
+
+This function performs the backward pass of the DualSDDP algorithm for a specific stage. 
+    It solves the optimization subproblem, fetches the dual values associated with fixed previous costate variables, computes a dual cut, and update the polyhedral models.
+
+## Arguments
+- `sddp::DualSDDP`: The DualSDDP algorithm object.
+- `stage::Stage`: The current stage of the algorithm.
+- `μₜ::Vector{Float64}`: The vector of fixed values for the previous costate variables.
+- `ξ::DiscreteRandomVariable{Float64}`: The random variable representing uncertainty at the current time step.
+- `Dₜ::PolyhedralFunction`: The polyhedral function representing the dual cost-to-go at the current time step.
+
+## Returns
+The slope of the dual cut which can be interpreted as a primal state.
+"""
 function previous!(
     sddp::DualSDDP,
     stage::Stage,
@@ -99,6 +194,21 @@ end
     Algorithm
 =#
 
+"""
+    fenchel_transform(solver::DualSDDP, D::PolyhedralFunction, x)
+
+Compute the Fenchel value D*(x) and subgradient λ∈∂D(x) #TODO:Check
+
+## Arguments
+- `solver::DualSDDP`: The DualSDDP algorithm object.
+- `D::PolyhedralFunction`: The polyhedral function for which the Fenchel dual is computed.
+- `x`: The point for which the Fenchel dual is calculated.
+
+## Returns
+A tuple `(value, λ)` where:
+- `value`: The value of the Fenchel dual function.
+- `λ`: subgradient.
+"""
 function fenchel_transform(solver::DualSDDP, D::PolyhedralFunction, x)
     nx = dimension(D)
     model = Model()
@@ -115,6 +225,13 @@ function fenchel_transform(solver::DualSDDP, D::PolyhedralFunction, x)
     return JuMP.objective_value(model), JuMP.value.(λ)
 end
 
+"""
+    build_tree(solver::DualSDDP, hdm::HazardDecisionModel, D::Vector{PolyhedralFunction})
+
+Build a multistage tree of optimization models for the DualSDDP algorithm.
+
+This function constructs a multistage tree of optimization models based on the given hazard decision model and vector of polyhedral functions. The tree represents the stages and optimization problems used in the DualSDDP algorithm.
+"""
 function build_tree(solver::DualSDDP, hdm::HazardDecisionModel, D::Vector{PolyhedralFunction})
     Ξ = uncertainties(hdm)
     T = horizon(hdm)

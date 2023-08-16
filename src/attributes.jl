@@ -44,13 +44,20 @@ end
 abstract type AbstractMultiStageModel end
 
 # Basic multistage problem.
+"""
+#TODO: Add documentation
+
+"""
 struct MultistageProblem{M, N} <: AbstractMultiStageModel
     model::M
     stages::Vector{Stage{N}}
 end
 
+"""
+#TODO: Add documentation
+"""
 function MultistageProblem(model::AbstractOneStageModel)
-    T = horizon(model)
+    T = horizon(model)#TODO: why AbstractOneStageModel have an horizon?
     parent = nothing
     stages = Stage{JuMP.Model}[]
     for t in 1:T
