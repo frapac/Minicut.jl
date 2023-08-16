@@ -162,6 +162,8 @@ function brazilian(; T=12, max_iter=500, nscenarios=10, nsimus=1000)
     solver = Minicut.SDDP(optimizer, [MOI.OPTIMAL, MOI.OTHER_ERROR])
     models = Minicut.solve!(solver, bhm, V, x0; n_iter=max_iter, verbose=10)
 
+    
+
     # Simulation
     scenarios = Minicut.sample(Minicut.uncertainties(bhm), nsimus)
     costs = Minicut.simulate!(solver, bhm, models, x0, scenarios)

@@ -51,6 +51,9 @@ end
 
 fetch_cut(sddp::DualSDDP, model::JuMP.Model) = dual.(FixRef.(model[_PREVIOUS_COSTATE]))
 
+#=
+    Compute next dual state
+=#
 function next!(
     sddp::DualSDDP,
     model::JuMP.Model,
@@ -65,6 +68,9 @@ function next!(
     return JuMP.value.(μf)
 end
 
+#=
+    Compute new dual cut and add it to the polyhedral function
+=#
 function previous!(
     sddp::DualSDDP,
     model::JuMP.Model,
@@ -80,6 +86,9 @@ function previous!(
     return x
 end
 
+#=
+    Add the last cut of the polyhedral function to the model
+=#
 function synchronize!(::DualSDDP, model::JuMP.Model, Dₜ₊₁::PolyhedralFunction)
     nw = length(model[_VALUE_FUNCTION])
     for k in 1:nw
@@ -93,6 +102,10 @@ end
     Algorithm
 =#
 
+#=
+    D*(x) = max_{λ, θ} { λ'x - θ | λ'x + β ≤ θ, ∀(x, β) ∈ D }
+    return D*(x), λ∈∂D(x)
+=#
 function fenchel_transform(solver::DualSDDP, D::PolyhedralFunction, x)
     nx = dimension(D)
     model = Model()
