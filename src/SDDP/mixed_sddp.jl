@@ -53,7 +53,6 @@ function solve!(
         end
     end
 
-    status = MOI.ITERATION_LIMIT
     # Final status
     if verbose > 0
         lb = V[1](x₀)

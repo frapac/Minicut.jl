@@ -4,6 +4,7 @@ abstract type AbstractSDDP <: AbstractStochasticOptimizer end
 include("primal_sddp.jl")
 include("dual_sddp.jl")
 include("mixed_sddp.jl")
+include("abstract_regularized.jl")
 include("regularized_sddp.jl")
 include("normal_sddp.jl")
 
