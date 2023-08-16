@@ -267,6 +267,30 @@ end
 #=
     Forward pass for dual SDDP (aka CUPPS)
 =#
+
+"""
+    forward_pass!(
+        sddp::DualSDDP,
+        tree::MultistageProblem,
+        scenario::InSampleScenario{Float64},
+        initial_state::Vector{Float64},
+        V::Vector{PolyhedralFunction}
+    )
+
+Perform the forward pass of the DualSDDP algorithm 
+along a given scenario, adding cuts on the way.
+
+## Arguments
+- `sddp::DualSDDP`: The DualSDDP algorithm object.
+- `tree::MultistageProblem`: The multistage tree of optimization models representing the decision problem.
+- `scenario::InSampleScenario{Float64}`: The scenario representing in-sample realizations of uncertainties.
+- `initial_state::Vector{Float64}`: The initial state vector for the forward pass.
+- `V::Vector{PolyhedralFunction}`: An array of polyhedral functions representing the dual variables.
+
+## Returns
+A matrix representing the trajectory of states over time.
+
+"""
 function forward_pass!(
     sddp::DualSDDP,
     tree::MultistageProblem,
@@ -290,6 +314,34 @@ function forward_pass!(
     return trajectory
 end
 
+"""
+    solve!(
+        solver::DualSDDP,
+        hdm::HazardDecisionModel,
+        D::Array{PolyhedralFunction},
+        x₀::Array;
+        n_iter=100,
+        verbose::Int = 1,
+    )
+
+Solve the optimization problem using the Dual DualSDDP algorithm.
+
+Run `n_iter` iterations of the DualSDDP algorithm. 
+Each iteration have a forward pass, with random node selection, that also add a cut,
+and a backward pass TODO: explain backward pass.
+
+## Arguments
+- `solver::DualSDDP`: The DualSDDP algorithm object.
+- `hdm::HazardDecisionModel`: The hazard decision model representing the decision problem and its characteristics.
+- `D::Array{PolyhedralFunction}`: An array of polyhedral functions representing the dual cost-to-go functions.
+- `x₀::Array`: The initial state vector for the optimization process.
+- `n_iter::Int`: The number of algorithm iterations to perform (default: 100).
+- `verbose::Int`: Verbosity level for printing progress (default: 1).
+
+## Returns
+A `MultistageProblem` object representing the multistage tree of optimization models.
+
+"""
 function solve!(
     solver::DualSDDP,
     hdm::HazardDecisionModel,
@@ -318,7 +370,7 @@ function solve!(
     for i in 1:n_iter
         scenario = sample(Ξ)
         dual_trajectory = forward_pass!(solver, tree, scenario, p₀, D)
-        primal_trajectory = backward_pass!(solver, tree, dual_trajectory, D)
+        primal_trajectory = backward_pass!(solver, tree, dual_trajectory, D)#TODO: what does it do?
         ub, p₀ = fenchel_transform(solver, D[1], x₀)
         if (verbose > 0) && (mod(i, verbose) == 0)
             @printf(" %4i %15.6e\n", i, ub)
