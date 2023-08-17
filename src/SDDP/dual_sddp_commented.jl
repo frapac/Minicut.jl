@@ -81,9 +81,12 @@ function solve_stage_problem!(sddp::DualSDDP, stage::Stage, μₜ::Vector{Float6
     return
 end
 
+"""
+    fetch_cut(sddp::DualSDDP, model::JuMP.Model)
 
-# Return the slope of the cut obtained when solving the current model
-# for currently fixed previous costate variables
+Return the slope of the cut obtained when solving the current model.
+#TODO: unclear
+"""
 fetch_cut(sddp::DualSDDP, model::JuMP.Model) = dual.(FixRef.(model[_PREVIOUS_COSTATE]))
 
 """
@@ -194,7 +197,7 @@ end
 """
     fenchel_transform(solver::DualSDDP, D::PolyhedralFunction, x)
 
-Compute the Fenchel value D*(x) and subgradient λ∈∂D(x) 
+Compute the Fenchel value D*(x) and subgradient λ∈∂D(x) #TODO:Check
 
 ## Arguments
 - `solver::DualSDDP`: The DualSDDP algorithm object.
@@ -325,7 +328,7 @@ Solve the optimization problem using the Dual DualSDDP algorithm.
 
 Run `n_iter` iterations of the DualSDDP algorithm. 
 Each iteration have a forward pass, with random node selection, that also add a cut,
-and a backward pass that add cut and compute the associated primal trajectory. 
+and a backward pass TODO: explain backward pass.
 
 ## Arguments
 - `solver::DualSDDP`: The DualSDDP algorithm object.
@@ -367,7 +370,7 @@ function solve!(
     for i in 1:n_iter
         scenario = sample(Ξ)
         dual_trajectory = forward_pass!(solver, tree, scenario, p₀, D)
-        primal_trajectory = backward_pass!(solver, tree, dual_trajectory, D)
+        primal_trajectory = backward_pass!(solver, tree, dual_trajectory, D)#TODO: what does it do?
         ub, p₀ = fenchel_transform(solver, D[1], x₀)
         if (verbose > 0) && (mod(i, verbose) == 0)
             @printf(" %4i %15.6e\n", i, ub)

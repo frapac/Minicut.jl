@@ -49,15 +49,16 @@ abstract type AbstractMultiStageModel end
 
 """
 struct MultistageProblem{M, N} <: AbstractMultiStageModel
-    model::M
+    model::M #TODO rename true_problem ? formal_problem ? problem_description ? problem_type ? 
     stages::Vector{Stage{N}}
 end
 
 """
 #TODO: Add documentation
+#TODO: change AbstractOneStageModel
 """
 function MultistageProblem(model::AbstractOneStageModel)
-    T = horizon(model)#TODO: why AbstractOneStageModel have an horizon?
+    T = horizon(model)
     parent = nothing
     stages = Stage{JuMP.Model}[]
     for t in 1:T
