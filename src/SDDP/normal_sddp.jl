@@ -238,3 +238,35 @@ function solve!(
     return normal_tree
 end
 
+function normalsddp(
+    hdm::HazardDecisionModel,
+    x₀::Array,
+    optimizer_lp,
+    optimizer_qp;
+    τ=1e8,
+    seed=0,
+    n_iter=500,
+    n_forward = 10,
+    verbose::Int=1,
+    lower_bound=-1e6,
+    upper_bound=1e10,
+    valid_statuses=[MOI.OPTIMAL],
+)
+    (seed >= 0) && Random.seed!(seed)
+    nx, T = number_states(hdm), horizon(hdm)
+    # Primal Polyhedral function
+    V = [PolyhedralFunction(nx, lower_bound) for t in 1:T]
+
+    # Solvers
+    primal_sddp = SDDP(optimizer_lp, valid_statuses)
+
+    # Solve
+    normal_sddp = NormalSDDP(optimizer_qp, primal_sddp, τ, upper_bound, n_forward)
+    primal_models = solve!(normal_sddp, hdm, V, x₀; n_iter=n_iter, verbose=verbose)
+
+    return (
+        primal_cuts=V,
+        primal_models=primal_models,
+        lower_bound=V[1](x₀)
+    )
+end

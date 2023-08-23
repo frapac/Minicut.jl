@@ -103,7 +103,7 @@ function forward_pass!(
         else
             ℓ = lb #mixing * lb + (1.0 - mixing) * ub
         end
-        ℓ = -1e9
+        #ℓ = -1e9
         xₜ, is_level = next!(reg_sddp, stage, xₜ, Ξ[stage.t], wₜ, ℓ)
         solve_cnt += 1
         level_cnt += is_level
@@ -161,7 +161,6 @@ function solve!(
     D::Array{PolyhedralFunction},
     x₀::Array;
     n_iter=100,
-    n_warming = 10,
     verbose::Int=1,
     τ=1e8,
 )
@@ -178,8 +177,8 @@ function solve!(
         @printf("\n")
         println(hdm)
         @printf("\n")
-        @printf(" %4s %15s %15s %10s\n", "-"^4, "-"^15, "-"^15, "-"^10)
-        @printf(" %4s %15s %15s %10s\n", "#it", "LB", "UB", "Gap (%)")
+        @printf(" %4s %15s %15s %15s %5s\n", "-"^4, "-"^15, "-"^15, "-"^15, "-"^5)
+        @printf(" %4s %15s %15s %15s %5s\n", "#it", "LB", "UB", "Gap (%)", "lvl")
     end
 
     # Run
@@ -198,14 +197,14 @@ function solve!(
         lb = V[1](x₀)
         if (verbose > 0) && (mod(i, verbose) == 0)
             gap = (ub - lb) / abs(lb)
-            @printf(" %4i %15.6e %15.6e %10.3f %3i\n", i, lb, ub, 100 * gap, level_cnt)
+            @printf(" %4i %15.6e %15.6e %15.3f %5i\n", i, lb, ub, 100 * gap, level_cnt)
         end
     end
 
     # Final status
     if verbose > 0
         lb = V[1](x₀)
-        @printf(" %4s %15s %15s %10s\n\n", "-"^4, "-"^15, "-"^15, "-"^10)
+        @printf(" %4s %15s %15s %15s %5s\n\n", "-"^4, "-"^15, "-"^15, "-"^15, "-"^5)
         @printf("Number of iterations.........: %7i\n", n_iter)
         @printf("Total wall-clock time (sec)..: %7.3f\n\n", time() - tic)
         @printf("Lower-bound.....: %15.8e\n", lb)
@@ -219,7 +218,8 @@ end
 function regularizedsddp(
     hdm::HazardDecisionModel,
     x₀::Array,
-    optimizer;
+    optimizer_lp,
+    optimizer_qp;
     mixing=1.0,
     τ=1e8,
     seed=0,
@@ -229,7 +229,6 @@ function regularizedsddp(
     lip_ub=+1e10,
     lip_lb=-1e10,
     valid_statuses=[MOI.OPTIMAL],
-    n_warming = 10,
 )
     (seed >= 0) && Random.seed!(seed)
     nx, T = number_states(hdm), horizon(hdm)
@@ -238,12 +237,12 @@ function regularizedsddp(
     D = [PolyhedralFunction(nx, lower_bound) for t in 1:T]
 
     # Solvers
-    primal_sddp = SDDP(optimizer, valid_statuses)
-    dual_sddp = DualSDDP(optimizer, valid_statuses, lip_lb, lip_ub)
+    primal_sddp = SDDP(optimizer_lp, valid_statuses)
+    dual_sddp = DualSDDP(optimizer_lp, valid_statuses, lip_lb, lip_ub)
 
     # Solve
-    reg_sddp = RegularizedPrimalSDDP(primal_sddp, dual_sddp, τ, mixing)
-    primal_models, dual_models = solve!(reg_sddp, hdm, V, D, x₀; n_iter=n_iter, n_warming=n_warming, verbose=verbose, τ=τ)
+    reg_sddp = RegularizedPrimalSDDP(optimizer_qp, primal_sddp, dual_sddp, τ, mixing)
+    primal_models, dual_models = solve!(reg_sddp, hdm, V, D, x₀; n_iter=n_iter, verbose=verbose, τ=τ)
 
     # Get upper-bound
     ub, _ = fenchel_transform(dual_sddp, D[1], x₀)
