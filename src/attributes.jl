@@ -44,11 +44,19 @@ end
 abstract type AbstractMultiStageModel end
 
 # Basic multistage problem.
+"""
+#TODO: Add documentation
+
+"""
 struct MultistageProblem{M, N} <: AbstractMultiStageModel
-    model::M
+    model::M #TODO rename true_problem ? formal_problem ? problem_description ? problem_type ? 
     stages::Vector{Stage{N}}
 end
 
+"""
+#TODO: Add documentation
+#TODO: change AbstractOneStageModel
+"""
 function MultistageProblem(model::AbstractOneStageModel)
     T = horizon(model)
     parent = nothing
