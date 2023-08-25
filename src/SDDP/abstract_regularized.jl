@@ -32,7 +32,7 @@ function initialize!(sddp::AbstractRegularizedSDDP, stage::AbstractRegularizedNo
         @variable(stage.regularized_model, y)
         @objective(stage.regularized_model, Min, w + y)
         t = @expression(stage.regularized_model, 1+y)
-        @constraint(stage.regularized_model, [t, vcat(sqrt(2)*sddp.tau^(-0.5)*stage.regularized_model[_CURRENT_STATE], 1 - y)] ∈ SecondOrderCone())
+        @constraint(stage.regularized_model, [t, sqrt(2)*sddp.tau^(-0.5)*stage.regularized_model[_CURRENT_STATE], 1 - y] ∈ SecondOrderCone())
     elseif mode == 3
         @variable(stage.regularized_model, y )
 
