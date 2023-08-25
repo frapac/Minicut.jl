@@ -7,7 +7,7 @@ abstract type AbstractRegularizedSDDP <: AbstractSDDP end
 
 abstract type AbstractRegularizedNode <: AbstractNode end
 
-function initialize!(sddp::AbstractRegularizedSDDP, stage::AbstractRegularizedNode, Vₜ₊₁::PolyhedralFunction)
+function initialize!(sddp::AbstractRegularizedSDDP, stage::AbstractRegularizedNode, Vₜ₊₁::PolyhedralFunction; mode::Int = 1)
     # Original model
     @variable(stage.model, θ)
     for (λ, γ) in eachcut(Vₜ₊₁)
@@ -26,7 +26,22 @@ function initialize!(sddp::AbstractRegularizedSDDP, stage::AbstractRegularizedNo
     end
     @constraint(stage.regularized_model, w >= θ + cost )
     @constraint(stage.regularized_model, w >= level)
-    @objective(stage.regularized_model, Min, w + (1 / (2 * sddp.tau)) * sum(stage.regularized_model[_CURRENT_STATE]).^2)
+    if mode == 1
+        @objective(stage.regularized_model, Min, w + (1 / (2 * sddp.tau)) * sum(stage.regularized_model[_CURRENT_STATE]).^2)
+    elseif mode == 2
+        @variable(stage.regularized_model, y)
+        @objective(stage.regularized_model, Min, w + y)
+        t = @expression(stage.regularized_model, 1+y)
+        @constraint(stage.regularized_model, [t, vcat(sqrt(2)*sddp.tau^(-0.5)*stage.regularized_model[_CURRENT_STATE], 1 - y)] ∈ SecondOrderCone())
+    elseif mode == 3
+        @variable(stage.regularized_model, y )
+
+        @objective(stage.regularized_model, Min, w + y)
+        nx = length(stage.regularized_model[_CURRENT_STATE])
+        @constraint(stage.regularized_model, abs_pos[i=1:nx], stage.regularized_model[_CURRENT_STATE][i] ≤ y)
+        @constraint(stage.regularized_model, abs_neg[i=1:nx], -stage.regularized_model[_CURRENT_STATE][i] ≤ y)
+    end
+
     # @constraint(stage.regularized_model, θ + cost >= level)
     # @objective(stage.regularized_model, Min, θ + cost + (1 / (2 * sddp.tau)) * sum(stage.regularized_model[_CURRENT_STATE]).^2)
 

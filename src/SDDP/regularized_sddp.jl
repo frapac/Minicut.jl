@@ -65,6 +65,20 @@ function upperbound(
     return objective_value(model)
 end
 
+function level_parameter(reg::RegularizedPrimalSDDP, lb::Float64, ub::Float64)
+    relative_gap = (ub-lb)/abs(lb)
+    @assert lb - 1e-3 <= ub 
+
+    if relative_gap > 0.05
+        ℓ = -1e9
+    elseif 0.05 >= relative_gap 
+        mixing = 0.5
+        ℓ = mixing * lb + (1 - mixing) * ub
+    end 
+
+    return ℓ
+end 
+
 function forward_pass!(
     reg_sddp::RegularizedPrimalSDDP,
     tree::MultistageProblem,
@@ -93,17 +107,7 @@ function forward_pass!(
         end
 
         # Regularization level ; Adaptative combination between lb and ub depending on the relative gap
-        relative_gap = abs((ub - lb)/lb)
-
-        mixing = min(10.0*relative_gap, 1.0) # If gap is too big, favor the lb from classic SDDP
-
-        if relative_gap < 0.1
-            mixing = 0.9
-            ℓ = mixing * lb + (1.0 - mixing) * ub
-        else
-            ℓ = lb #mixing * lb + (1.0 - mixing) * ub
-        end
-        #ℓ = -1e9
+        ℓ = level_parameter(reg_sddp, lb, ub)
         xₜ, is_level = next!(reg_sddp, stage, xₜ, Ξ[stage.t], wₜ, ℓ)
         solve_cnt += 1
         level_cnt += is_level
@@ -126,7 +130,7 @@ function forward_pass(
     return forward_pass!(sddp, tree, V, D, scenario, initial_state, primal_trajectory)
 end
 
-function build_tree(solver::RegularizedPrimalSDDP, hdm::HazardDecisionModel, V::Vector{PolyhedralFunction})
+function build_tree(solver::RegularizedPrimalSDDP, hdm::HazardDecisionModel, V::Vector{PolyhedralFunction}; mode::Int = 1)
     # Get number of nodes per stage.
     T = horizon(hdm)
     # Build multistage tree
@@ -146,7 +150,7 @@ function build_tree(solver::RegularizedPrimalSDDP, hdm::HazardDecisionModel, V::
     # Initialize JuMP model
     for stage in stages
         if !stage.is_final
-            initialize!(solver, stage, V[stage.t+1])
+            initialize!(solver, stage, V[stage.t+1]; mode = mode)
         end
         JuMP.set_optimizer(stage.model, solver.primal_sddp.optimizer)
         JuMP.set_optimizer(stage.regularized_model, solver.qp_optimizer)
@@ -163,12 +167,13 @@ function solve!(
     n_iter=100,
     verbose::Int=1,
     τ=1e8,
+    mode::Int = 1,
 )
     (verbose > 0) && header()
     Ξ = uncertainties(hdm)
 
     # Build regularized tree.
-    ptree = build_tree(solver, hdm, V)
+    ptree = build_tree(solver, hdm, V; mode = mode)
     # NB: we don't regularize dual SDDP.
     dtree = build_tree(solver.dual_sddp, hdm, D)
 
@@ -229,6 +234,7 @@ function regularizedsddp(
     lip_ub=+1e10,
     lip_lb=-1e10,
     valid_statuses=[MOI.OPTIMAL],
+    mode::Int=1,
 )
     (seed >= 0) && Random.seed!(seed)
     nx, T = number_states(hdm), horizon(hdm)
@@ -242,7 +248,7 @@ function regularizedsddp(
 
     # Solve
     reg_sddp = RegularizedPrimalSDDP(optimizer_qp, primal_sddp, dual_sddp, τ, mixing)
-    primal_models, dual_models = solve!(reg_sddp, hdm, V, D, x₀; n_iter=n_iter, verbose=verbose, τ=τ)
+    primal_models, dual_models = solve!(reg_sddp, hdm, V, D, x₀; n_iter=n_iter, verbose=verbose, τ=τ, mode = mode)
 
     # Get upper-bound
     ub, _ = fenchel_transform(dual_sddp, D[1], x₀)

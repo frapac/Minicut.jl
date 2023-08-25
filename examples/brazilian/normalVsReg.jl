@@ -11,14 +11,14 @@ if !@isdefined GRB_ENV
 end
 
 # Intermediate size Brazilian problem
-T = 25
-nb_scenarios = 20 
+T = 5  
+nb_scenarios = 10
 bhm = BrazilianHydroModel(; T=T, nscen=nb_scenarios) 
 
 # Initialization
-lower_bound = -1e8
+lower_bound = -1e10
 upper_bound = 1e10
-max_iter = 250
+max_iter = 300
 nx = Minicut.number_states(bhm)
 optimizer_lp = () -> Gurobi.Optimizer(GRB_ENV)
 optimizer_qp = () -> Gurobi.Optimizer(GRB_ENV)
@@ -26,19 +26,25 @@ valid_statuses = [MOI.OPTIMAL]
 verbose = 1
 x0 = bhm.x0
 
+# # Solve with Regularized LP SDDP
+# res_regLP = Minicut.regularizedsddp(bhm, x0, optimizer_lp, optimizer_qp; τ=1e8, n_iter=max_iter, verbose = verbose, lower_bound = lower_bound, valid_statuses = valid_statuses, mode = 3); 
 
-# Solve with Regularized SDDP 
-res_reg = Minicut.regularizedsddp(bhm, x0, optimizer_lp, optimizer_qp; τ=1e8, n_iter=max_iter, verbose = verbose, lower_bound = lower_bound, valid_statuses = valid_statuses); 
-# takes 2950 seconds for 500 iterations
+# # Solve with Regularized QP SDDP 
+# res_regQP = Minicut.regularizedsddp(bhm, x0, optimizer_lp, optimizer_qp; τ=1e8, n_iter=max_iter, verbose = verbose, lower_bound = lower_bound, valid_statuses = valid_statuses, mode = 1); 
 
+# # Solve with Normal SDDP
+# n_forward = 10
+# max_iter_normal = max_iter ÷ n_forward
+# verbose_normal = verbose ÷ n_forward
+# # itermax = max_iter
+# res_normal = Minicut.normalsddp(bhm, x0, optimizer_lp, optimizer_qp; τ=1e8, n_iter=max_iter_normal, n_forward = n_forward, verbose=verbose_normal, upper_bound = upper_bound);
 
-# Solve with Normal SDDP
-n_forward = 10
-#itermax = max_iter ÷ n_forward
-itermax = max_iter
-res_normal = Minicut.normalsddp(bhm, x0, optimizer_lp, optimizer_qp; τ=1e8, n_iter=itermax, n_forward = n_forward, verbose=verbose, upper_bound = upper_bound);
+# Solve with Normal Solution QP SDDP
+res_normsolQP = Minicut.normalsolutionsddp(bhm, x0, optimizer_lp, optimizer_qp; τ=1e8, n_iter=max_iter, verbose = verbose, lower_bound = lower_bound, valid_statuses = valid_statuses, mode = 1); 
 
-println("----")
+# Solve with Normal Solution LP SDDP
+res_normsol = Minicut.normalsolutionsddp(bhm, x0, optimizer_lp, optimizer_qp; τ=1e8, n_iter=max_iter, verbose = verbose, lower_bound = lower_bound, valid_statuses = valid_statuses, mode = 3); 
+
 
 # Solve with SDDP
  res_sddp = Minicut.sddp(bhm, x0, optimizer_lp; n_iter=max_iter, verbose= verbose, lower_bound = lower_bound);
