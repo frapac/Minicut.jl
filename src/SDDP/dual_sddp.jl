@@ -212,8 +212,13 @@ function solve!(
             for t in 2:horizon(hdm)
                 df.ub[i, t+1] = fenchel_transform(solver, D[t], primal_trajectory[:, t])[1]
             end
-            if i in [200,300, 500, n_iter]
-                save("D_$(i).jld2", Dict("D"=>D))
+            if i in [100,200,300, n_iter]
+                save("D_$(i).jld2", Dict("D" => D))
+                if saving_data 
+                    CSV.write(lowercase(split(name(hdm))[1])*"_dualsddp_data.csv", df.data) 
+                    CSV.write(lowercase(split(name(hdm))[1])*"_dualsddp_timers.csv", df.timers) 
+                    CSV.write(lowercase(split(name(hdm))[1])*"_dualsddp_ub.csv", df.ub) 
+                end 
             end
         else
             dual_trajectory = forward_pass!(solver, tree, scenario, p₀, D)

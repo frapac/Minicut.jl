@@ -56,7 +56,8 @@ function _update_upperbounds!(
             path = history[k, stage.t]
             current_cost = cum_costs[k, stage.t+1] - cum_costs[k, stage.t]
             future_costs = stage.paths_to_costs[path]
-            expected_cost = sum(future_costs) / length(future_costs)
+            # Assume uniform distribution
+            expected_cost = sum(future_costs) / length(future_costs) 
             stage.upperbounds[j] = min(
                 stage.upperbounds[j],
                 (current_cost + expected_cost),
