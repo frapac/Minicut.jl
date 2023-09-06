@@ -87,3 +87,27 @@ function header()
     println("This is Minicut 0.1.0.\n")
 end
 
+function init_save(hdm::HazardDecisionModel, n_iter::Int)
+    data = DataFrame()
+    data[!, :horizon] = [horizon(hdm)]
+    data[!, :n_x] = [number_states(hdm)]
+    data[!, :n_iter] = [n_iter]
+    data[!, :n_xi] = [length(uncertainties(hdm))]
+
+    # Initializing the DataFrames to be filled during the run
+    timers = DataFrame()
+    timers[!, :iteration] = 1:n_iter
+    timers[!, :time_primal_forward] .= 0.0
+    timers[!, :time_primal_backward] .= 0.0
+    timers[!, :time_dual_forward] .= 0.0
+    timers[!, :time_dual_backward] .= 0.0
+
+    lb = DataFrame(-Inf*ones(Float64, (n_iter, horizon(hdm))), :auto)
+    insertcols!(lb, 1, :iteration => 1:n_iter)
+
+    ub = DataFrame(Inf*ones(Float64, (n_iter, horizon(hdm))), :auto)
+    insertcols!(ub, 1, :iteration => 1:n_iter)
+
+    return (data=data, timers=timers, lb=lb, ub=ub)
+end
+

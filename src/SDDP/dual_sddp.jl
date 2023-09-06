@@ -212,7 +212,7 @@ function solve!(
             for t in 2:horizon(hdm)
                 df.ub[i, t+1] = fenchel_transform(solver, D[t], primal_trajectory[:, t])[1]
             end
-            if i in [200,250,300]
+            if i in [200,300, 500, n_iter]
                 save("D_$(i).jld2", Dict("D"=>D))
             end
         else

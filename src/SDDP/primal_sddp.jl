@@ -137,7 +137,7 @@ function solve!(
             for t in 1:horizon(hdm)
                 df.lb[i,t+1] = V[t](primal_trajectory[1][:, t]) 
             end
-            if i in [200,250,300]
+            if i in [200,300, n_iter]
                 save("V_$(i).jld2", Dict("V"=>V))
             end
         else 
