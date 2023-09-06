@@ -108,6 +108,7 @@ function solve!(
     n_iter=100,
     n_forward=1,
     verbose::Int = 1,
+    saving_data::Bool=false,
 )
     (verbose > 0) && header()
 
@@ -122,13 +123,27 @@ function solve!(
         @printf(" %4s %15s\n", "-"^4, "-"^15)
         @printf(" %4s %15s\n", "#it", "LB")
     end
+    if saving_data
+        df = init_save(hdm, n_iter)
+    end
 
     tic = time()
     # Run
     for i in 1:n_iter
         scen = sample(Ξ, n_forward)
-        primal_trajectory = forward_pass(solver, problem, scen, x₀)
-        dual_trajectory = backward_pass!(solver, problem, primal_trajectory, V)
+        if saving_data
+            df.timers[i, :time_primal_forward] = @elapsed(primal_trajectory = forward_pass(solver, problem, scen, x₀))
+            df.timers[i, :time_primal_backward] = @elapsed(dual_trajectory = backward_pass!(solver, problem, primal_trajectory, V))
+            for t in 1:horizon(hdm)
+                df.lb[i,t+1] = V[t](primal_trajectory[1][:, t]) 
+            end
+            if i in [200,250,300]
+                save("V_$(i).jld2", Dict("V"=>V))
+            end
+        else 
+            primal_trajectory = forward_pass(solver, problem, scen, x₀)
+            dual_trajectory = backward_pass!(solver, problem, primal_trajectory, V)
+        end
         if (verbose > 0) && (mod(i, verbose) == 0)
             lb = V[1](x₀)
             @printf(" %4i %15.6e\n", i, lb)
@@ -143,6 +158,12 @@ function solve!(
         @printf("Lower-bound.....: %15.8e\n", lb)
     end
 
+    if saving_data 
+        CSV.write(lowercase(split(name(hdm))[1])*"_sddp_data.csv", df.data) 
+        CSV.write(lowercase(split(name(hdm))[1])*"_sddp_timers.csv", df.timers) 
+        CSV.write(lowercase(split(name(hdm))[1])*"_sddp_lb.csv", df.lb) 
+    end 
+
     return problem
 end
 
@@ -156,12 +177,13 @@ function sddp(
     verbose::Int = 1,
     lower_bound=-1e6,
     valid_statuses=[MOI.OPTIMAL],
+    saving_data::Bool=false,
 )
     (seed >= 0) && Random.seed!(seed)
     nx, T = number_states(hdm), horizon(hdm)
     V = [PolyhedralFunction(zeros(1, nx), [lower_bound]) for t in 1:T]
     solver = SDDP(optimizer, valid_statuses)
-    models = solve!(solver, hdm, V, x₀; n_iter=n_iter, verbose=verbose)
+    models = solve!(solver, hdm, V, x₀; n_iter=n_iter, verbose=verbose, saving_data=saving_data)
     return (cuts=V, models=models, lower_bound=V[1](x₀))
 end
 

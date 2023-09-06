@@ -35,7 +35,6 @@ function initialize!(sddp::AbstractRegularizedSDDP, stage::AbstractRegularizedNo
         @constraint(stage.regularized_model, [t, sqrt(2)*sddp.tau^(-0.5)*stage.regularized_model[_CURRENT_STATE], 1 - y] ∈ SecondOrderCone())
     elseif mode == 3
         @variable(stage.regularized_model, y )
-
         @objective(stage.regularized_model, Min, w + y)
         nx = length(stage.regularized_model[_CURRENT_STATE])
         @constraint(stage.regularized_model, abs_pos[i=1:nx], stage.regularized_model[_CURRENT_STATE][i] ≤ y)

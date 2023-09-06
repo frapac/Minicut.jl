@@ -180,6 +180,7 @@ function solve!(
     x₀::Array;
     n_iter=100,
     verbose::Int = 1,
+    saving_data::Bool=saving_data
 )
     (verbose > 0) && header()
 
@@ -194,14 +195,30 @@ function solve!(
         @printf(" %4s %15s\n", "-"^4, "-"^15)
         @printf(" %4s %15s\n", "#it", "UB")
     end
+    if saving_data
+        df = init_save(hdm, n_iter)
+    end
 
     # Run
     tic = time()
     ub, p₀ = fenchel_transform(solver, D[1], x₀)
     for i in 1:n_iter
         scenario = sample(Ξ)
-        dual_trajectory = forward_pass!(solver, tree, scenario, p₀, D)
-        primal_trajectory = backward_pass!(solver, tree, dual_trajectory, D)
+        if saving_data 
+            df.timers[i, :time_dual_forward] = @elapsed(dual_trajectory = forward_pass!(solver, tree, scenario, p₀, D))
+            df.timers[i, :time_dual_backward] = @elapsed(primal_trajectory = backward_pass!(solver, tree, dual_trajectory, D))
+            # UB at (x0, x_1^k,...,x_T^k) where x0 is given and x_1^k is the primal traj. given by cuts in the dual
+            df.ub[i, 2] = fenchel_transform(solver, D[1], x₀)[1]
+            for t in 2:horizon(hdm)
+                df.ub[i, t+1] = fenchel_transform(solver, D[t], primal_trajectory[:, t])[1]
+            end
+            if i in [200,250,300]
+                save("D_$(i).jld2", Dict("D"=>D))
+            end
+        else
+            dual_trajectory = forward_pass!(solver, tree, scenario, p₀, D)
+            primal_trajectory = backward_pass!(solver, tree, dual_trajectory, D)
+        end
         ub, p₀ = fenchel_transform(solver, D[1], x₀)
         if (verbose > 0) && (mod(i, verbose) == 0)
             @printf(" %4i %15.6e\n", i, ub)
@@ -214,6 +231,12 @@ function solve!(
         @printf("Total wall-clock time (sec)..: %7.3f\n\n", time() - tic)
         @printf("Upper-bound.....: %15.8e\n", ub)
     end
+
+    if saving_data 
+        CSV.write(lowercase(split(name(hdm))[1])*"_dualsddp_data.csv", df.data) 
+        CSV.write(lowercase(split(name(hdm))[1])*"_dualsddp_timers.csv", df.timers) 
+        CSV.write(lowercase(split(name(hdm))[1])*"_dualsddp_ub.csv", df.ub) 
+    end 
 
     return tree
 end
@@ -230,12 +253,13 @@ function dualsddp(
     lip_ub=+1e10,
     lip_lb=-1e10,
     valid_statuses=[MOI.OPTIMAL],
+    saving_data::Bool=false
 )
     (seed >= 0) && Random.seed!(seed)
     nx, T = number_states(hdm), horizon(hdm)
     D = [PolyhedralFunction(nx, lower_bound) for t in 1:T]
     dual_sddp = DualSDDP(optimizer, valid_statuses, lip_lb, lip_ub)
-    dual_models = solve!(dual_sddp, hdm, D, x₀; n_iter=n_iter, verbose=verbose)
+    dual_models = solve!(dual_sddp, hdm, D, x₀; n_iter=n_iter, verbose=verbose, saving_data = saving_data)
     ub, _ = fenchel_transform(dual_sddp, D[1], x₀)
     return (cuts=D, models=dual_models, upper_bound=ub)
 end

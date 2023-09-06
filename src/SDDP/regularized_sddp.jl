@@ -168,6 +168,7 @@ function solve!(
     verbose::Int=1,
     τ=1e8,
     mode::Int = 1,
+    saving_data::Bool=false,
 )
     (verbose > 0) && header()
     Ξ = uncertainties(hdm)
@@ -186,18 +187,36 @@ function solve!(
         @printf(" %4s %15s %15s %15s %5s\n", "#it", "LB", "UB", "Gap (%)", "lvl")
     end
 
+    if saving_data
+        df = init_save(hdm, n_iter)
+    end
+
     # Run
     tic = time()
     ub, p₀ = fenchel_transform(solver.dual_sddp, D[1], x₀)
     for i in 1:n_iter
         scenario = sample(Ξ)
-        # Primal
-        primal_trajectory, solve_cnt, level_cnt = forward_pass(solver, ptree, V, D, scenario, x₀)
-        dual_trajectory = backward_pass!(solver.primal_sddp, ptree, primal_trajectory, V)
-        # Dual
-        backward_pass!(solver.dual_sddp, dtree, dual_trajectory, D)
-        ub, p₀ = fenchel_transform(solver.dual_sddp, D[1], x₀)
-        forward_pass!(solver.dual_sddp, dtree, scenario, p₀, D)
+        if saving_data
+            # Primal
+            df.timers[i, :time_primal_forward] = @elapsed( (primal_trajectory, solve_cnt, level_cnt) = forward_pass(solver, ptree, V, D, scenario, x₀) )
+            df.timers[i, :time_primal_backward]= @elapsed(dual_trajectory = backward_pass!(solver.primal_sddp, ptree, primal_trajectory, V))
+            # Dual 
+            df.timers[i, :time_dual_forward]=@elapsed( backward_pass!(solver.dual_sddp, dtree, dual_trajectory, D))
+            ub, p₀ = fenchel_transform(solver.dual_sddp, D[1], x₀)
+            df.timers[i,:time_dual_backward]=@elapsed( forward_pass!(solver.dual_sddp, dtree, scenario, p₀, D))
+            for t in 1:horizon(hdm)
+                df.lb[i,t+1] = V[t](primal_trajectory[:, t]) 
+                df.ub[i, t+1] = fenchel_transform(solver.dual_sddp, D[t], primal_trajectory[:, t])[1]
+            end
+        else
+            # Primal
+            primal_trajectory, solve_cnt, level_cnt = forward_pass(solver, ptree, V, D, scenario, x₀)
+            dual_trajectory = backward_pass!(solver.primal_sddp, ptree, primal_trajectory, V)
+            # Dual
+            backward_pass!(solver.dual_sddp, dtree, dual_trajectory, D)
+            ub, p₀ = fenchel_transform(solver.dual_sddp, D[1], x₀)
+            forward_pass!(solver.dual_sddp, dtree, scenario, p₀, D)
+        end
 
         lb = V[1](x₀)
         if (verbose > 0) && (mod(i, verbose) == 0)
@@ -216,6 +235,12 @@ function solve!(
         @printf("Upper-bound.....: %15.8e\n", ub)
         @printf("Final Gap.......: %13.5f %%\n", 100.0 * (ub - lb) / abs(lb))
     end
+    if saving_data 
+        CSV.write(lowercase(split(name(hdm))[1])*"_regsddp_data.csv", df.data) 
+        CSV.write(lowercase(split(name(hdm))[1])*"_regsddp_timers.csv", df.timers) 
+        CSV.write(lowercase(split(name(hdm))[1])*"_regsddp_lb.csv", df.lb)
+        CSV.write(lowercase(split(name(hdm))[1])*"_regsddp_ub.csv", df.ub) 
+    end 
     return (ptree, dtree)
 end
 
@@ -235,6 +260,7 @@ function regularizedsddp(
     lip_lb=-1e10,
     valid_statuses=[MOI.OPTIMAL],
     mode::Int=1,
+    saving_data::Bool=false,
 )
     (seed >= 0) && Random.seed!(seed)
     nx, T = number_states(hdm), horizon(hdm)
@@ -248,7 +274,7 @@ function regularizedsddp(
 
     # Solve
     reg_sddp = RegularizedPrimalSDDP(optimizer_qp, primal_sddp, dual_sddp, τ, mixing)
-    primal_models, dual_models = solve!(reg_sddp, hdm, V, D, x₀; n_iter=n_iter, verbose=verbose, τ=τ, mode = mode)
+    primal_models, dual_models = solve!(reg_sddp, hdm, V, D, x₀; n_iter=n_iter, verbose=verbose, τ=τ, mode = mode, saving_data = saving_data)
 
     # Get upper-bound
     ub, _ = fenchel_transform(dual_sddp, D[1], x₀)
