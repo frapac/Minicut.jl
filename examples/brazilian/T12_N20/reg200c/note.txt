@@ -1,0 +1,13 @@
+The update rule was
+
+    if relative_gap < 0.5
+         mixing = 0.95
+        ℓ = mixing * lb + (1.0 - mixing) * ub
+    else
+        ℓ = 0.98*lb 
+        # ℓ = -1e-9
+    end
+
+which was immediatly active (starting gap is around 11%).
+
+The mode was 4, that is regularized by norm(x - x_previous)_2^2.

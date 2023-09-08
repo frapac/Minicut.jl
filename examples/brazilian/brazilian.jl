@@ -79,15 +79,17 @@ function BrazilianHydroModel(; T=12, nscen=10)
     )
 end
 
+
+
 Minicut.uncertainties(bhm::BrazilianHydroModel) = bhm.inflows
 Minicut.horizon(bhm::BrazilianHydroModel) = bhm.T
 Minicut.number_states(bhm::BrazilianHydroModel) = 4
 Minicut.name(bhm::BrazilianHydroModel) = "Brazilian hydro-thermal generation problem"
 
-function Minicut.stage_model(bm::BrazilianHydroModel, t::Int)
+function Minicut.stage_model(bm::BrazilianHydroModel, t::Int; scaling = 1e-5)
     discount = 0.9906
     β = discount^(t-1)
-    cost_spill = 1e-3
+    cost_spill = 1e-3*scaling
     demand = data.demand[(t-1) % 12 + 1, :]
     exch_costs = bm.data.exchange_costs
     m = Model()
@@ -131,10 +133,12 @@ function Minicut.stage_model(bm::BrazilianHydroModel, t::Int)
     @objective(m, Min,
         β * (
             cost_spill * sum(uspill) +
-            sum(dot(bm.data.thermals[k][:, 3], utherm[k]) for k in 1:4)
-            + sum(bm.data.deficit[j, 1] * deficit[i, j] for i in 1:4, j in 1:4)
+            sum(dot(bm.data.thermals[k][:, 3]*scaling, utherm[k]) for k in 1:4)
+            + sum(bm.data.deficit[j, 1]* scaling * deficit[i, j] for i in 1:4, j in 1:4)
         )
     )
+    # Temporary
+    @expression(m, x0, bm.x0)
 
     @expression(m, x₋, dams)
     @expression(m, x, damsf)

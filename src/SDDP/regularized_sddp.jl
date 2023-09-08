@@ -67,15 +67,19 @@ end
 
 function level_parameter(reg::RegularizedPrimalSDDP, lb::Float64, ub::Float64)
     relative_gap = (ub-lb)/abs(lb)
-    @assert lb - 1e-3 <= ub 
-
-    if relative_gap < 0.1
-        mixing = 0.9
+    if lb - 1e-3 > ub 
+        println("abs(ub-lb) = $(abs(ub-lb))")
+        @assert lb - 1e-3 <= ub 
+    end
+    if relative_gap < 0.12
+        #mixing = relative_gap
+        mixing = .9
         ℓ = mixing * lb + (1.0 - mixing) * ub
     else
-        #ℓ = lb 
-        ℓ = -1e-9
+        ℓ = 0.98*lb 
+        # ℓ = -1e9
     end
+    # ℓ = -1e9
 
     return ℓ
 end 
@@ -302,9 +306,8 @@ function regularizedsddp_givenVD(
     seed=0,
     n_iter=500,
     verbose::Int=1,
-    lower_bound=-1e6,
-    lip_ub=+1e10,
-    lip_lb=-1e10,
+    lip_ub=+1e5,
+    lip_lb=-1e5,
     valid_statuses=[MOI.OPTIMAL],
     mode::Int=1,
     saving_data::Bool=false,
@@ -374,23 +377,28 @@ function solve_givenVD!(
         if saving_data
             # Primal
             df.timers[i, :time_primal_forward] = @elapsed( (primal_trajectory, solve_cnt, level_cnt) = forward_pass(solver, ptree, V, D, scenario, x₀) )
-            df.timers[i, :time_primal_backward]= @elapsed( backward_pass!(solver.primal_sddp, ptree, primal_trajectory, V))
+            df.timers[i, :time_primal_backward]= @elapsed( dual_trajectory = backward_pass!(solver.primal_sddp, ptree, primal_trajectory, V))
             # Dual 
-            df.timers[i,:time_dual_forward] = @elapsed( dual_trajectory = forward_pass!(solver.dual_sddp, dtree, scenario, p₀, D))
-            df.timers[i, :time_dual_forward] = @elapsed( backward_pass!(solver.dual_sddp, dtree, dual_trajectory, D))
+            df.timers[i, :time_dual_backward] = @elapsed( backward_pass!(solver.dual_sddp, dtree, dual_trajectory, D))
             ub, p₀ = fenchel_transform(solver.dual_sddp, D[1], x₀)
-            
+            # df.timers[i,:time_dual_forward] = @elapsed( forward_pass!(solver.dual_sddp, dtree, scenario, p₀, D))
             for t in 1:horizon(hdm)
                 df.lb[i,t+1] = V[t](primal_trajectory[:, t]) 
                 df.ub[i, t+1] = fenchel_transform(solver.dual_sddp, D[t], primal_trajectory[:, t])[1]
             end
-            if i in [20,50,100, n_iter]
+
+            for t in 2:horizon(hdm)
+                df.Δ_norm[i,t] = norm(primal_trajectory[:,t]-primal_trajectory[:,t-1])
+            end 
+
+            if i in [100, 300]
                 #save("Vreg_$(i).jld2", Dict("V"=>V))
                 if saving_data 
-                    CSV.write(lowercase(split(name(hdm))[1])*"_regsddp_data_2.csv", df.data) 
-                    CSV.write(lowercase(split(name(hdm))[1])*"_regsddp_timers_2.csv", df.timers) 
-                    CSV.write(lowercase(split(name(hdm))[1])*"_regsddp_ub_2.csv", df.ub) 
-                    CSV.write(lowercase(split(name(hdm))[1])*"_regsddp_lb_2.csv", df.lb)
+                    CSV.write(lowercase(split(name(hdm))[1])*"_regsddp_data.csv", df.data) 
+                    CSV.write(lowercase(split(name(hdm))[1])*"_regsddp_timers.csv", df.timers) 
+                    CSV.write(lowercase(split(name(hdm))[1])*"_regsddp_ub.csv", df.ub) 
+                    CSV.write(lowercase(split(name(hdm))[1])*"_regsddp_lb.csv", df.lb)
+                    CSV.write(lowercase(split(name(hdm))[1])*"_regsddp_deltanorm.csv", df.Δ_norm) 
                 end 
             end
         else
@@ -425,6 +433,7 @@ function solve_givenVD!(
         CSV.write(lowercase(split(name(hdm))[1])*"_regsddp_timers.csv", df.timers) 
         CSV.write(lowercase(split(name(hdm))[1])*"_regsddp_lb.csv", df.lb)
         CSV.write(lowercase(split(name(hdm))[1])*"_regsddp_ub.csv", df.ub) 
+        CSV.write(lowercase(split(name(hdm))[1])*"_regsddp_deltanorm.csv", df.Δ_norm) 
     end 
     return (ptree, dtree)
 end

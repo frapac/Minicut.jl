@@ -211,13 +211,15 @@ function solve!(
             df.ub[i, 2] = fenchel_transform(solver, D[1], x₀)[1]
             for t in 2:horizon(hdm)
                 df.ub[i, t+1] = fenchel_transform(solver, D[t], primal_trajectory[:, t])[1]
+                df.Δ_norm[i,t] = norm(primal_trajectory[:,t]-primal_trajectory[:,t-1])
             end
-            if i in [100,200,300, n_iter]
+            if i in [200,300,350, 400, n_iter]
                 save("D_$(i).jld2", Dict("D" => D))
                 if saving_data 
                     CSV.write(lowercase(split(name(hdm))[1])*"_dualsddp_data.csv", df.data) 
                     CSV.write(lowercase(split(name(hdm))[1])*"_dualsddp_timers.csv", df.timers) 
                     CSV.write(lowercase(split(name(hdm))[1])*"_dualsddp_ub.csv", df.ub) 
+                    CSV.write(lowercase(split(name(hdm))[1])*"_regsddp_deltanorm.csv", df.Δ_norm) 
                 end 
             end
         else
@@ -241,6 +243,7 @@ function solve!(
         CSV.write(lowercase(split(name(hdm))[1])*"_dualsddp_data.csv", df.data) 
         CSV.write(lowercase(split(name(hdm))[1])*"_dualsddp_timers.csv", df.timers) 
         CSV.write(lowercase(split(name(hdm))[1])*"_dualsddp_ub.csv", df.ub) 
+        CSV.write(lowercase(split(name(hdm))[1])*"_dualsddp_deltanorm.csv", df.Δ_norm) 
     end 
 
     return tree

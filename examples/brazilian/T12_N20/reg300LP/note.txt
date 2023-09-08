@@ -1,0 +1,8 @@
+    if relative_gap < 0.5
+         mixing = 0.9
+        ℓ = mixing * lb + (1.0 - mixing) * ub
+    else
+        ℓ = 0.98*lb 
+        # ℓ = -1e9
+    end
+

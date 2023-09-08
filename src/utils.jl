@@ -108,6 +108,9 @@ function init_save(hdm::HazardDecisionModel, n_iter::Int)
     ub = DataFrame(Inf*ones(Float64, (n_iter, horizon(hdm))), :auto)
     insertcols!(ub, 1, :iteration => 1:n_iter)
 
-    return (data=data, timers=timers, lb=lb, ub=ub)
+    Δ_norm = DataFrame(Inf*ones(Float64, (n_iter, horizon(hdm)-1)), :auto)
+    insertcols!(Δ_norm, 1, :iteration => 1:n_iter)
+
+    return (data=data, timers=timers, lb=lb, ub=ub, Δ_norm = Δ_norm)
 end
 

@@ -137,7 +137,10 @@ function solve!(
             for t in 1:horizon(hdm)
                 df.lb[i,t+1] = V[t](primal_trajectory[1][:, t]) 
             end
-            if i in [100,200,300, n_iter]
+            for t in 2:horizon(hdm)
+                df.Δ_norm[i,t] = norm(primal_trajectory[1][:,t]-primal_trajectory[1][:,t-1])
+            end 
+            if i in [200,300,350,400, n_iter]
                 save("V_$(i).jld2", Dict("V"=>V))
             end
         else 
@@ -162,6 +165,7 @@ function solve!(
         CSV.write(lowercase(split(name(hdm))[1])*"_sddp_data.csv", df.data) 
         CSV.write(lowercase(split(name(hdm))[1])*"_sddp_timers.csv", df.timers) 
         CSV.write(lowercase(split(name(hdm))[1])*"_sddp_lb.csv", df.lb) 
+        CSV.write(lowercase(split(name(hdm))[1])*"_sddp_deltanorm.csv", df.Δ_norm) 
     end 
 
     return problem

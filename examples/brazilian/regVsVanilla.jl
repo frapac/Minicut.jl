@@ -13,39 +13,35 @@ if !@isdefined GRB_ENV
 end
 
 # Intermediate size Brazilian problem
-T = 15
-nb_scenarios = 1
+T = 12
+nb_scenarios = 20
 bhm = BrazilianHydroModel(; T=T, nscen=nb_scenarios) 
 
 # Initialization
-lower_bound = -1e10
-upper_bound = 1e10
-max_iter = 30
+lower_bound = -1e8
+max_iter = 200
 nx = Minicut.number_states(bhm)
 optimizer_lp = () -> Gurobi.Optimizer(GRB_ENV)
 optimizer_qp = () -> Gurobi.Optimizer(GRB_ENV)
 
-valid_statuses = [MOI.OPTIMAL]
+valid_statuses = [MOI.OPTIMAL, MOI.LOCALLY_SOLVED]
 verbose = 1
 x0 = bhm.x0
 
-# Solve with SDDP
-res_sddp = Minicut.sddp(bhm, x0, optimizer_lp; n_iter=max_iter, verbose= verbose, lower_bound = lower_bound, saving_data = false, valid_statuses = valid_statuses);
+# # Solve with SDDP
+# res_sddp = Minicut.sddp(bhm, x0, optimizer_lp; n_iter=max_iter, verbose= verbose, lower_bound = lower_bound, saving_data = true, valid_statuses = valid_statuses);
 
 # Solve with Dual SDDP
-res_dualsddp = Minicut.dualsddp(bhm, x0, optimizer_lp ; n_iter=max_iter, verbose= verbose, lower_bound = lower_bound, valid_statuses = valid_statuses, saving_data = false);
+# res_dualsddp = Minicut.dualsddp(bhm, x0, optimizer_lp ; n_iter=max_iter, verbose= verbose, lower_bound = lower_bound, valid_statuses = valid_statuses, saving_data = true);
 
 # Solve with Regularized QP SDDP given V and D
-# V200 = load("examples/brazilian/T12_N20/primal/V_200.jld2", "V")
-# D200 = load("examples/brazilian/T12_N20/dual/D_200.jld2", "D")
-#res_regQP = Minicut.regularizedsddp_givenVD(bhm, x0, optimizer_lp, optimizer_qp, V200, D200; τ=1e8, n_iter=500, verbose = verbose, lower_bound = lower_bound, valid_statuses = valid_statuses, mode = 1, saving_data = false); 
-
-res_regQP = Minicut.regularizedsddp(bhm, x0, optimizer_lp, optimizer_qp; τ=1e8, n_iter=max_iter, verbose = verbose, lower_bound = lower_bound, valid_statuses = valid_statuses, mode = 1, saving_data = false); 
+# V0 = [PolyhedralFunction(nx, lower_bound) for t in 1:T]
+# D0 = [PolyhedralFunction(nx, lower_bound) for t in 1:T]
+V300 = load("examples/brazilian/T12_N20/primal/V_1000.jld2", "V")
+D1000 = load("examples/brazilian/T12_N20/dual/D_1000.jld2", "D")
+res_regQP = Minicut.regularizedsddp_givenVD(bhm, x0, optimizer_lp, optimizer_qp, V300, D1000; τ=5e10, n_iter=max_iter, verbose = verbose,  valid_statuses = valid_statuses, mode = 2, saving_data = false); 
 
 println("--"^10)
-
-# # Solve with Regularized LP SDDP
-# res_regLP = Minicut.regularizedsddp(bhm, x0, optimizer_lp, optimizer_qp; τ=1e8, n_iter=max_iter, verbose = verbose, lower_bound = lower_bound, valid_statuses = valid_statuses, mode = 3); 
 
 # # Solve with Normal SDDP
 # n_forward = 10
